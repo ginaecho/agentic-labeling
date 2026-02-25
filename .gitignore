@@ -1,0 +1,23 @@
+# Data files (large / sensitive)
+*.csv
+
+# Environment and secrets
+.env
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor
+.claude/

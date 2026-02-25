@@ -1,0 +1,30 @@
+# ── AI Personalization Pipeline Configuration ────────────────────────────────
+# Edit this file to customize the persona generation pipeline.
+# After changes, re-run notebooks in order: 03 → 04 → 05
+
+# ── Clustering ────────────────────────────────────────────────────────────────
+
+# Number of customer segments to create.
+# Default: 10  |  Recommended range: 4–15
+# Fewer clusters → broader, easier-to-action personas
+# More clusters  → finer segmentation, more specific personas
+n_clusters: 10
+
+# Clustering algorithm to use.
+# Options:
+#   hierarchical  — Agglomerative (Ward linkage). Default. Builds a dendrogram;
+#                   good for finding nested/sub-group structure (e.g. "travellers"
+#                   that branch into "regional" vs "cross-continent" travellers).
+#   kmeans        — K-Means. Assigns customers to the nearest centroid.
+#                   Fast and interpretable, well-suited for large datasets.
+clustering_algorithm: hierarchical
+
+# ── LLM Persona Descriptions ──────────────────────────────────────────────────
+
+# Tone for all Claude-generated persona names, descriptions, and explanations.
+# Options:
+#   easy          — Plain, everyday language. No jargon. Default.
+#   professional  — Formal business language. Suitable for executive presentations.
+#   data-driven   — Statistical language; emphasises numbers and ratios throughout.
+#   creative      — Vivid metaphors, storytelling, imaginative analogies.
+persona_tone: easy
