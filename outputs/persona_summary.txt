@@ -1,0 +1,363 @@
+=================================================================
+PERSONA SUMMARY
+=================================================================
+  8 personas  |  948 customers  |  silhouette=n/a  |  CV F1 (macro)=0.9259645906988268
+=================================================================
+-----------------------------------------------------------------
+
+Cluster 0  (182 customers, 19.2% of total)  CV-F1=0.992
+  Persona  : The High-Volume All-Category Power Spender
+  Tagline  : Shops everywhere, often, and has been doing it for over a year and a half.
+  Dominant : ['shopping_pos', 'grocery_pos', 'shopping_net', 'food_dining', 'entertainment']
+  Traits:
+    • Spends 2.2x the average on online groceries — the single biggest
+      above-average signal in this cluster
+    • Averages 134 shopping POS and 132 grocery POS transactions per
+      year — near-daily in-store activity
+    • Loyalty runs 17–18 consecutive months across almost every category
+    • Entertainment spend of $9,134/yr at $90/transaction suggests
+      regular outings or subscriptions
+    • Gas and transport is the one laggard at 0.6x average, suggesting
+      these customers may live close to shops or use delivery
+
+  Description:
+    These 182 customers spend across every category at 40–120% above
+    average, with grocery POS alone hitting $20,554/yr and shopping POS
+    at $15,922/yr. They run nearly 1,900 transactions a year — that's
+    over 5 per day — and have stayed loyal for 17–18 months straight
+    across most categories. The only relative weak spot is gas and
+    transport, which sits 40% below average.
+
+  Key metrics driving this persona:
+  ▲ Strongly above-average:
+    Category                vs avg   txns/yr     spend/yr   avg/txn   loyalty
+    ──────────────────────────────────────────────────────────────────
+  ◀◀ grocery_net              2.20x      76.1  $     4,088  $     53    16.5mo
+  ◀  shopping_net             1.61x     119.9  $    12,864  $    109    17.7mo
+  ◀  misc_pos                 1.54x      94.4  $     6,791  $     70    17.6mo
+  ◀  food_dining              1.51x     105.3  $     5,733  $     56    17.5mo
+  ◀  shopping_pos             1.51x     134.6  $    15,922  $    124    17.9mo
+  ◀  entertainment            1.41x     101.4  $     9,134  $     90    17.6mo
+  ◀  health_fitness           1.41x      92.9  $     5,767  $     64    17.4mo
+  ◀  grocery_pos              1.40x     131.5  $    20,554  $    149    17.8mo
+  ◀  home                     1.40x     131.8  $     8,823  $     66    17.6mo
+  ▼ Notably below-average:
+    Category                vs avg   txns/yr     spend/yr
+    ────────────────────────────────────────────────────
+    ▼ gas_transport            0.60x      60.5  $     4,037
+  ● Overall vs dataset average:
+    Avg txn size  : $    89.91   ≈ 0.96x
+    Total spend/yr: $168,609.71   ▲ 1.76x
+    Txns/yr       :    1,889.0   ▲ 1.38x
+    High-value %  :        7.8%
+    Active months :       18.0
+-----------------------------------------------------------------
+
+Cluster 1  (11 customers, 1.2% of total)  CV-F1=0.909
+  Persona  : The Rare Big-Ticket Online Shopper
+  Tagline  : Barely transacts, but when they do, they spend hundreds at a time online.
+  Dominant : ['shopping_net', 'misc_net', 'shopping_pos']
+  Traits:
+    • Average transaction of $587 — 6x higher than typical — driven by
+      rare but large online purchases
+    • Online shopping averages $1,017 per transaction with only 3.2
+      transactions per year
+    • 76.5% of transactions are classified as high-value, the second
+      highest rate across all clusters
+    • Consecutive engagement is just 1 month or less — these are one-off
+      or very infrequent buyers
+    • Almost no spend on food, dining, home, kids, or gas — this is not
+      a lifestyle spender
+
+  Description:
+    These 11 customers make only about 11 transactions a year across all
+    categories, but their average transaction is $587 — driven by online
+    shopping at $1,017/txn and misc online at $794/txn. Consecutive
+    months of engagement are just 1.0 or less, meaning they show up in
+    bursts rather than habitually. They are nearly invisible in daily
+    spending categories like food, home, and kids.
+
+  Key metrics driving this persona:
+  ▼ Notably below-average:
+    Category                vs avg   txns/yr     spend/yr
+    ────────────────────────────────────────────────────
+    ▼ entertainment            0.00x       0.3  $       112
+    ▼ food_dining              0.00x       0.2  $        24
+    ▼ home                     0.00x       0.1  $        24
+    ▼ kids_pets                0.00x       0.2  $         4
+    ▼ gas_transport            0.01x       0.6  $         6
+    ▼ grocery_net              0.01x       0.3  $         3
+    ▼ misc_pos                 0.01x       0.4  $         3
+    ▼ personal_care            0.01x       0.5  $        11
+    ▼ shopping_pos             0.01x       1.1  $     1,140
+    ▼ travel                   0.01x       0.5  $         5
+    ▼ grocery_pos              0.02x       2.3  $       672
+    ▼ misc_net                 0.04x       1.8  $     1,442
+    ▼ shopping_net             0.04x       3.2  $     3,251
+  ● Overall vs dataset average:
+    Avg txn size  : $   586.69   ▲ 6.27x
+    Total spend/yr: $ 6,695.83   ▼ 0.07x
+    Txns/yr       :       11.4   ▼ 0.01x
+    High-value %  :       76.5%
+    Active months :        1.0
+-----------------------------------------------------------------
+
+Cluster 2  (227 customers, 23.9% of total)  CV-F1=0.987
+  Persona  : The Light, Sporadic Across-the-Board Undershopper
+  Tagline  : Active in every category, but at roughly a third to a half of normal levels.
+  Dominant : ['grocery_pos', 'gas_transport', 'home', 'kids_pets', 'shopping_pos']
+  Traits:
+    • Every category sits at 0.37–0.42x average — unusually uniform
+      underperformance with no category standing out
+    • Only 530 transactions per year, roughly 40% of what the average
+      active cluster shows
+    • Grocery POS is their biggest spend at $4,448/yr but still well
+      below average at 0.41x
+    • Consecutive months drop to 9–10 for entertainment, food, and
+      health — these are lapsing or seasonal categories
+    • Travel is their most inconsistent habit at just 5.2 consecutive
+      months and 0.42x average spend
+
+  Description:
+    These 227 customers spend about 37–42% of the typical rate across
+    every single category — no standout high or low, just uniformly low
+    volume. They average 530 transactions a year (versus 1,296–1,869 for
+    active clusters) and their consecutive months of loyalty trail off
+    in entertainment, food, and health to just 9–10 months. They look
+    like occasional rather than habitual users of the bank's card.
+
+  Key metrics driving this persona:
+  ▼ Notably below-average:
+    Category                vs avg   txns/yr     spend/yr
+    ────────────────────────────────────────────────────
+    ▼ grocery_net              0.30x      10.3  $       588
+    ▼ misc_net                 0.37x      17.9  $     1,679
+    ▼ misc_pos                 0.37x      22.8  $     1,357
+    ▼ shopping_net             0.37x      27.7  $     2,992
+    ▼ shopping_pos             0.37x      32.9  $     2,875
+    ▼ food_dining              0.38x      26.5  $     1,537
+    ▼ gas_transport            0.38x      38.6  $     2,449
+    ▼ health_fitness           0.38x      25.0  $     1,314
+    ▼ entertainment            0.39x      28.0  $     1,714
+    ▼ home                     0.39x      37.2  $     2,210
+    ▼ personal_care            0.39x      27.0  $     1,292
+    ▼ kids_pets                0.40x      34.4  $     2,084
+    ▼ grocery_pos              0.41x      38.4  $     4,448
+    ▼ travel                   0.42x      13.2  $     1,539
+  ● Overall vs dataset average:
+    Avg txn size  : $    73.84   ▼ 0.79x
+    Total spend/yr: $39,083.39   ▼ 0.41x
+    Txns/yr       :      530.4   ▼ 0.39x
+    High-value %  :        4.8%
+    Active months :       18.0
+-----------------------------------------------------------------
+
+Cluster 4  (18 customers, 1.9% of total)  CV-F1=1.000
+  Persona  : The High-Frequency Ghost — Active Spend Pattern, Zero Loyalty Signal
+  Tagline  : Looks like a big spender in volume, but consecutive months are nearly zero — something doesn't add up.
+  Dominant : ['grocery_pos', 'home', 'kids_pets', 'shopping_net', 'gas_transport']
+  Traits:
+    • Transaction volumes per category look near-normal (0.85–0.96x) but
+      consecutive months are 0.1–0.9 — near zero
+    • Average transaction of $592 is about 8x higher than Cluster 6/7/8
+      siblings, despite similar category mix
+    • 79.7% of transactions are high-value — inconsistent with the low
+      average per-transaction in categories like food ($52) and personal
+      care ($47)
+    • Gas and transport shows 76 transactions/yr at $5,354 — but only
+      0.9 consecutive months of activity
+    • This cluster may represent accounts with irregular data, batch
+      imports, or onboarding-period spending
+
+  Description:
+    These 18 customers show transaction counts and spend levels that
+    look almost normal (0.85–0.96x average across categories), but their
+    consecutive loyalty months are 0.1–0.9 — essentially zero. Combined
+    with an average transaction of $592 and 79.7% high-value
+    transactions, this cluster behaves like Cluster 1 and 5 in structure
+    but has a much fuller category footprint. This is the most anomalous
+    cluster in the dataset and may reflect data quality issues, newly
+    opened accounts with large opening transactions, or customers with
+    consolidated batch-style statements.
+
+  Key metrics driving this persona:
+  ▼ Notably below-average:
+    Category                vs avg   txns/yr     spend/yr
+    ────────────────────────────────────────────────────
+    ▼ grocery_net              0.52x      18.0  $     1,252
+  ● Overall vs dataset average:
+    Avg txn size  : $   591.78   ▲ 6.33x
+    Total spend/yr: $ 6,840.73   ▼ 0.07x
+    Txns/yr       :       11.7   ▼ 0.01x
+    High-value %  :       79.7%
+    Active months :        1.0
+-----------------------------------------------------------------
+
+Cluster 5  (11 customers, 1.2% of total)  CV-F1=0.909
+  Persona  : The Ultra-Rare Luxury Online Shopper
+  Tagline  : Almost never uses their card, but when they do, it's for big online purchases.
+  Dominant : ['shopping_net', 'shopping_pos', 'misc_net']
+  Traits:
+    • Highest average transaction value at $655 — driven by shopping_net
+      at $989/txn and shopping_pos at $937/txn
+    • 89% of transactions are classified as high-value — the highest
+      rate across all clusters
+    • Only about 11 total transactions per year across all categories
+      combined
+    • Consecutive months are 0–1.1 — essentially no repeat habit in any
+      category
+    • Almost no spend on food, dining, gas, travel, or entertainment —
+      this is a pure big-ticket online buyer
+
+  Description:
+    These 11 customers make fewer than 11 transactions a year, but their
+    average transaction is $655 — the highest of any cluster. Online
+    shopping alone averages $989/transaction and in-store shopping
+    $937/transaction. They have 89% high-value transactions and near-
+    zero consecutive loyalty months, making them the most infrequent but
+    highest per-transaction spenders in the dataset.
+
+  Key metrics driving this persona:
+  ▼ Notably below-average:
+    Category                vs avg   txns/yr     spend/yr
+    ────────────────────────────────────────────────────
+    ▼ entertainment            0.00x       0.2  $        78
+    ▼ travel                   0.00x       0.1  $         1
+    ▼ gas_transport            0.01x       0.6  $         7
+    ▼ misc_pos                 0.01x       0.5  $         4
+    ▼ shopping_pos             0.02x       1.7  $     1,615
+    ▼ grocery_pos              0.03x       2.9  $       879
+    ▼ misc_net                 0.03x       1.3  $     1,007
+    ▼ shopping_net             0.05x       3.6  $     3,578
+  ● Overall vs dataset average:
+    Avg txn size  : $   654.69   ▲ 7.00x
+    Total spend/yr: $ 7,167.49   ▼ 0.07x
+    Txns/yr       :       10.9   ▼ 0.01x
+    High-value %  :       89.0%
+    Active months :        1.1
+-----------------------------------------------------------------
+
+Cluster 6  (sub-cluster of C3)  (219 customers, 23.1% of total)  CV-F1=0.897
+  Persona  : The Committed Commuter & Steady Household Manager
+  Tagline  : Unlike siblings 7 and 8, this group's standout is gas spending near average — not above it — with a calmer, more balanced profile across all categories.
+  Dominant : ['gas_transport', 'grocery_pos', 'home', 'kids_pets', 'shopping_pos']
+  Traits:
+    • Gas is their top signal at 1.14x average but is significantly
+      lower than siblings at 1.69x and 1.79x
+    • Most categories cluster tightly between 0.81x and 1.04x — the most
+      balanced, least extreme of the three sub-clusters
+    • Grocery POS spend of $9,912/yr and 89.7 transactions suggest
+      regular but not heavy in-store grocery shopping
+    • Loyalty is strong — 17–18 consecutive months across most
+      categories — matching siblings in commitment
+    • Online grocery (grocery_net) is a weak spot at 0.44x average,
+      unlike sibling 8 which is strong there at 1.69x
+
+  Description:
+    Cluster 6 is the quietest of the three sub-clusters. Gas and
+    transport is their top category at 1.14x average — noticeable, but
+    far below siblings 7 (1.69x) and 8 (1.79x). Where siblings 7 and 8
+    push many categories above average, Cluster 6 sits right around or
+    just below average in most areas, with grocery POS at 0.95x and
+    shopping at 0.84–0.86x. They are loyal — 17–18 months in most
+    categories — but spend at a more restrained level than either
+    sibling.
+
+  Key metrics driving this persona:
+  ▼ Notably below-average:
+    Category                vs avg   txns/yr     spend/yr
+    ────────────────────────────────────────────────────
+    ▼ grocery_net              0.44x      15.2  $       955
+  ● Overall vs dataset average:
+    Avg txn size  : $    63.77   ▼ 0.68x
+    Total spend/yr: $82,306.92   ▼ 0.86x
+    Txns/yr       :    1,296.7   ≈ 0.95x
+    High-value %  :        3.5%
+    Active months :       18.0
+-----------------------------------------------------------------
+
+Cluster 7  (sub-cluster of C3)  (133 customers, 14.0% of total)  CV-F1=0.863
+  Persona  : The High-Mileage Commuter Who Also Travels and Stays Active
+  Tagline  : Unlike siblings 6 and 8, this group pairs heavy gas use with above-average travel spend and the highest travel cost-per-trip.
+  Dominant : ['gas_transport', 'travel', 'kids_pets', 'home', 'grocery_pos']
+  Traits:
+    • Travel averages $147/transaction — 3.5x higher than sibling 6
+      ($40) and 3.4x higher than sibling 8 ($43), suggesting flights or
+      hotels
+    • Gas at 1.69x average is high but still below sibling 8's 1.79x —
+      commuting is heavy but travel is the true differentiator
+    • Health and fitness at 1.35x and entertainment at 1.32x suggest an
+      active social and physical lifestyle
+    • Kids and pets at 1.36x and home at 1.34x point to a busy household
+      managing both family and travel
+    • Grocery_net at 0.94x is far stronger than sibling 6's 0.44x,
+      suggesting some online grocery adoption alongside in-store habits
+
+  Description:
+    Cluster 7 is defined by gas at 1.69x average and travel at 1.45x
+    average with $147/transaction — far above sibling 6's $40/txn and
+    sibling 8's $43/txn. This suggests real travel (flights, hotels)
+    rather than local trips. They also lead siblings in health/fitness
+    (1.35x), home (1.34x), and entertainment (1.32x), painting a picture
+    of an active, mobile lifestyle with genuine travel expenditure — not
+    just commuting.
+
+  Key metrics driving this persona:
+  ▲ Strongly above-average:
+    Category                vs avg   txns/yr     spend/yr   avg/txn   loyalty
+    ──────────────────────────────────────────────────────────────────
+  ◀  gas_transport            1.69x     169.5  $    10,568  $     63    17.8mo
+  ◀  misc_net                 1.46x      70.7  $     4,829  $     69    15.8mo
+  ◀  travel                   1.45x      45.0  $     5,626  $    147    14.5mo
+  ● Overall vs dataset average:
+    Avg txn size  : $    64.74   ▼ 0.69x
+    Total spend/yr: $118,317.80   ▲ 1.23x
+    Txns/yr       :    1,868.4   ▲ 1.37x
+    High-value %  :        3.5%
+    Active months :       18.0
+-----------------------------------------------------------------
+
+Cluster 8  (sub-cluster of C3)  (147 customers, 15.5% of total)  CV-F1=0.852
+  Persona  : The Highest-Frequency Everyday Spender with Strong Online Grocery Habit
+  Tagline  : Unlike siblings 6 and 7, this group leads in sheer transaction volume and is the only one with a notably above-average online grocery habit.
+  Dominant : ['gas_transport', 'grocery_net', 'misc_pos', 'shopping_pos', 'food_dining']
+  Traits:
+    • Highest transaction count of all sub-clusters at 2,036/yr — about
+      57% more than sibling 6's 1,297/yr
+    • Online grocery (grocery_net) at 1.69x average with 58.5
+      transactions/yr — the only sub-cluster where this is a meaningful
+      signal
+    • Gas at 1.79x is the highest of the three siblings, suggesting the
+      most vehicle-dependent lifestyle
+    • Food and dining at 1.47x average and $38.53/transaction suggests
+      frequent fast-casual or quick service meals
+    • Travel average of $43/transaction is the lowest of the three
+      siblings, confirming this group drives more than it flies
+
+  Description:
+    Cluster 8 runs 2,036 transactions per year — more than any other
+    sub-cluster or top-level cluster except Cluster 0. Gas tops the
+    charts at 1.79x average, and unlike siblings, grocery_net is 1.69x
+    average (58.5 transactions/yr at $2,863), suggesting a real online
+    grocery subscription or repeat ordering habit. Food and dining at
+    1.47x and misc_pos at 1.56x show this group is spending constantly
+    across everyday categories at a pace that feels almost automated.
+
+  Key metrics driving this persona:
+  ▲ Strongly above-average:
+    Category                vs avg   txns/yr     spend/yr   avg/txn   loyalty
+    ──────────────────────────────────────────────────────────────────
+  ◀  gas_transport            1.79x     179.4  $    11,348  $     64    18.0mo
+  ◀  grocery_net              1.69x      58.5  $     2,863  $     51    16.0mo
+  ◀  misc_pos                 1.56x      95.6  $     5,840  $     63    17.5mo
+  ◀  shopping_pos             1.50x     133.6  $     8,705  $     68    17.9mo
+  ◀  food_dining              1.47x     103.0  $     3,868  $     39    17.6mo
+  ◀  misc_net                 1.47x      71.2  $     4,298  $     60    16.9mo
+  ● Overall vs dataset average:
+    Avg txn size  : $    59.06   ▼ 0.63x
+    Total spend/yr: $118,772.98   ▲ 1.24x
+    Txns/yr       :    2,035.7   ▲ 1.49x
+    High-value %  :        3.2%
+    Active months :       18.0
+
+=================================================================

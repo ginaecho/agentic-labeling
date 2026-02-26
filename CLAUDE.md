@@ -42,6 +42,22 @@ Which algorithm segments the customers:
 - **`kmeans`** — K-Means. Places each customer into the group whose centroid it is
   closest to. Fast, scalable, and very interpretable for large datasets.
 
+#### `max_cluster_size_pct` (default: `0.40`)
+Trigger threshold for the deepening loop. Any cluster whose share of total customers
+exceeds this value is automatically split.
+- `0.40` → split if one cluster has >40% of all customers
+- `1.0`  → never split (same as disabling the loop)
+
+#### `sub_n_clusters` (default: `3`)
+How many sub-clusters to create when splitting an oversized cluster.
+Smaller values (2–3) keep personas manageable; larger values (4–5) produce finer splits.
+
+#### `max_depth` (default: `2`)
+Maximum number of splitting rounds.
+- `0` → deepening loop disabled entirely (flat clustering only)
+- `1` → split once, then stop
+- `2` → split, then check again and split once more if needed (default)
+
 #### `persona_tone` (default: `easy`)
 Tone Claude uses when writing persona names, descriptions, and explanations:
 - **`easy`** — Plain, everyday language. No jargon. Simple analogies.
@@ -69,7 +85,8 @@ Tone Claude uses when writing persona names, descriptions, and explanations:
 | `data/raw/fraudTrain.csv`                         | Raw transaction data                           |
 | `data/processed/customer_features.parquet`        | 108 features per customer (output of nb 02)    |
 | `data/processed/customer_features_clustered.parquet` | Features + cluster labels (output of nb 03) |
-| `outputs/cluster_profiles.json`                   | Per-cluster statistics (output of nb 03)       |
+| `outputs/cluster_profiles.json`                   | Per-cluster statistics + lineage (output of nb 03) |
+| `outputs/cluster_lineage.json`                    | Full cluster tree (parent/child relationships) |
 | `outputs/personas.json`                           | Cluster → Persona mapping (output of nb 04)    |
 | `outputs/cluster_explanations.json`               | LLM explanations per cluster (output of nb 05) |
 | `outputs/cluster_plots/`                          | Visualization PNGs                             |

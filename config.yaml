@@ -8,7 +8,7 @@
 # Default: 10  |  Recommended range: 4–15
 # Fewer clusters → broader, easier-to-action personas
 # More clusters  → finer segmentation, more specific personas
-n_clusters: 10
+n_clusters: 6
 
 # Clustering algorithm to use.
 # Options:
@@ -18,6 +18,29 @@ n_clusters: 10
 #   kmeans        — K-Means. Assigns customers to the nearest centroid.
 #                   Fast and interpretable, well-suited for large datasets.
 clustering_algorithm: hierarchical
+
+# ── Hierarchical Deepening Loop ───────────────────────────────────────────────
+#
+# After the initial clustering, any cluster whose share of total customers
+# exceeds `max_cluster_size_pct` is automatically split into `sub_n_clusters`
+# sub-clusters. This repeats for up to `max_depth` rounds.
+#
+# Rationale: a cluster containing >40% of customers is usually too broad to
+# produce a useful, specific persona. Splitting it reveals the distinct
+# sub-groups that were hiding inside.
+#
+# Examples:
+#   A cluster of "moderate spenders" might split into
+#     → "Daily grocery & gas routine" (high frequency, low ticket)
+#     → "Weekend dining & entertainment" (moderate frequency, evening pattern)
+#     → "Home & kids budget manager"    (family-category focused)
+#
+# Set max_depth: 0  to disable loop splitting entirely.
+# Set max_cluster_size_pct: 1.0  to never trigger (same as max_depth: 0).
+
+max_cluster_size_pct: 0.40   # fraction — split any cluster larger than this share
+sub_n_clusters: 3            # how many sub-clusters to create when splitting
+max_depth: 2                 # max rounds of splitting (0 = disabled, 1 = one round, ...)
 
 # ── LLM Persona Descriptions ──────────────────────────────────────────────────
 

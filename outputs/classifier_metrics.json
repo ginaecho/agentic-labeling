@@ -1,0 +1,38 @@
+{
+  "cv_accuracy": 0.9272151898734177,
+  "cv_f1_macro": 0.9259645906988268,
+  "cv_f1_weighted": 0.9269842793081726,
+  "per_class_f1": {
+    "The Committed Commuter & Steady Household Manager": 0.8966,
+    "The High-Frequency Ghost \u2014 Active Spend Pattern, Zero Loyalty Signal": 1.0,
+    "The High-Mileage Commuter Who Also Travels and Stays Active": 0.8626,
+    "The High-Volume All-Category Power Spender": 0.9917,
+    "The Highest-Frequency Everyday Spender with Strong Online Grocery Habit": 0.852,
+    "The Light, Sporadic Across-the-Board Undershopper": 0.9867,
+    "The Rare Big-Ticket Online Shopper": 0.9091,
+    "The Ultra-Rare Luxury Online Shopper": 0.9091
+  },
+  "top20_features": {
+    "amt_travel_6m": 0.044859,
+    "avg_spend_entertainment_12m": 0.037954,
+    "avg_days_between_txn": 0.037731,
+    "avg_spend_travel_6m": 0.035423,
+    "total_spend": 0.03209,
+    "avg_spend_entertainment_6m": 0.028255,
+    "avg_txn_amt": 0.028122,
+    "total_txn_count": 0.027818,
+    "n_txn_grocery_net_12m": 0.027014,
+    "n_unique_merchants": 0.024504,
+    "amt_gas_transport_12m": 0.021455,
+    "consec_months_grocery_net": 0.020669,
+    "n_txn_home_12m": 0.019196,
+    "n_txn_food_dining_12m": 0.019099,
+    "amt_grocery_net_12m": 0.019075,
+    "n_txn_grocery_pos_12m": 0.019032,
+    "n_txn_gas_transport_12m": 0.018094,
+    "n_txn_kids_pets_12m": 0.016485,
+    "amt_travel_12m": 0.016379,
+    "n_txn_shopping_pos_12m": 0.016031
+  },
+  "reasoning": "CV macro-F1 0.926 \u2265 threshold 0.7."
+}
