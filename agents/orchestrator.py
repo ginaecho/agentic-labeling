@@ -1,14 +1,24 @@
 """
 Orchestrator
 
-Coordinates four agents in a feedback loop:
-  (1) FeatureSelectionAgent  — PCA + AE scoring → Claude picks feature subset
-  (2) ClusteringAgent        — hierarchical/kmeans + deepening loop
-  (3) PersonaNamingAgent     — Claude names clusters; Clarity Gate validates
-  (4) ClassifierAgent        — Random Forest CV validates cluster separability;
-                               Claude routes back to (1) or (2) if F1 is low
+Contract: docs/agents/orchestrator.md. Consumes docs/skills/orchestrator_bus.md.
+
+Coordinates the full multi-agent pipeline in a feedback loop:
+
+  (0) UserInputAgent         — collect clustering intent
+  (1) DatasetExaminerAgent   — profile dataset, suggest feature groups
+  (2) FeatureEngineerAgent   — engineer customer features from raw CSV
+                               (skipped if a pre-engineered parquet is given)
+  (3) FeatureSelectionAgent  — PCA + AE + VIF → Claude picks feature subset
+  (4) ClusteringAgent        — silhouette k-opt + auto algo + deepening loop
+  (5) PersonaNamingAgent     — Claude names clusters; Clarity Gate validates
+  (6) ClassifierAgent        — Random Forest CV validates cluster separability;
+                               Claude routes back to (3) or (4) if F1 is low
   ↓
   Human Checkpoint           — user approves, requests re-run, or quits
+
+All agents report to a shared OrchestratorBus. The orchestrator uses the
+bus log when calling Claude for routing decisions.
 """
 from __future__ import annotations
 
@@ -21,13 +31,34 @@ import anthropic
 import pandas as pd
 
 from agents.state import HumanDecision, PipelineState
+from agents.user_input import UserInputAgent, UserIntent
+from agents.dataset_examiner import DatasetExaminerAgent
+from agents.feature_engineer import FeatureEngineerAgent, FeatureEngineeringResult
 from agents.feature_selector import FeatureSelectionAgent
 from agents.clusterer import ClusteringAgent
 from agents.persona_namer import PersonaNamingAgent
 from agents.classifier import ClassifierAgent
+from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 
 
-def human_checkpoint(personas: dict, cluster_result, classifier_result) -> HumanDecision:
+def _load_df(path: str) -> pd.DataFrame:
+    """Load a DataFrame from parquet or CSV, detected by file extension."""
+    import pathlib
+    suffix = pathlib.Path(path).suffix.lower()
+    if suffix == '.parquet':
+        return pd.read_parquet(path)
+    elif suffix in ('.csv', '.tsv'):
+        sep = '\t' if suffix == '.tsv' else ','
+        return pd.read_csv(path, sep=sep, low_memory=False)
+    else:
+        # Try parquet first, fall back to CSV
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return pd.read_csv(path, low_memory=False)
+
+
+def human_checkpoint(personas: dict, cluster_result, classifier_result, bus: OrchestratorBus) -> HumanDecision:
     """
     Print persona + classifier summary and ask the user what to do next.
 
@@ -39,6 +70,10 @@ def human_checkpoint(personas: dict, cluster_result, classifier_result) -> Human
     print('=' * 65)
     print(f'Silhouette score   : {cluster_result.silhouette:.4f}')
     print(f'Leaf clusters      : {cluster_result.n_leaf}')
+    print(f'Algorithm used     : {cluster_result.algo_name}')
+    if cluster_result.k_scores:
+        top3 = sorted(cluster_result.k_scores.items(), key=lambda x: -x[1])[:3]
+        print(f'Top-3 k values     : ' + ', '.join(f'k={k}({s:.3f})' for k, s in top3))
     print(f'CV accuracy        : {classifier_result.cv_accuracy:.4f}')
     print(f'CV F1 (macro)      : {classifier_result.cv_f1_macro:.4f}')
     print(f'CV F1 (weighted)   : {classifier_result.cv_f1_weighted:.4f}')
@@ -62,6 +97,11 @@ def human_checkpoint(personas: dict, cluster_result, classifier_result) -> Human
     for name, score in worst:
         bar = '█' * int(score * 20)
         print(f'  {name:<45}  {score:.3f}  {bar}')
+
+    # Pipeline log summary
+    print()
+    print('Pipeline Agent Log (recent):')
+    print(bus.summary_for_claude(last_n=10))
 
     print()
     print('Options:')
@@ -102,8 +142,8 @@ def human_checkpoint(personas: dict, cluster_result, classifier_result) -> Human
             print('  Invalid choice. Please enter 1, 2, 3, or 4.')
 
 
-def save_outputs(cluster_result, naming_result, classifier_result) -> None:
-    """Save cluster_profiles.json, cluster_lineage.json, personas.json, and classifier_metrics.json."""
+def save_outputs(cluster_result, naming_result, classifier_result, bus: OrchestratorBus) -> None:
+    """Save all pipeline outputs including the orchestrator bus log."""
     pathlib.Path('outputs').mkdir(exist_ok=True)
 
     with open('outputs/cluster_profiles.json', 'w') as f:
@@ -126,7 +166,6 @@ def save_outputs(cluster_result, naming_result, classifier_result) -> None:
         json.dump(combined, f, indent=2)
     print('  Saved outputs/personas.json')
 
-    # Save classifier validation metrics
     metrics = {
         'cv_accuracy':     classifier_result.cv_accuracy,
         'cv_f1_macro':     classifier_result.cv_f1_macro,
@@ -142,60 +181,136 @@ def save_outputs(cluster_result, naming_result, classifier_result) -> None:
         json.dump(metrics, f, indent=2)
     print('  Saved outputs/classifier_metrics.json')
 
+    # Save k-selection silhouette scores
+    if cluster_result.k_scores:
+        with open('outputs/silhouette_curve.json', 'w') as f:
+            json.dump({
+                "algorithm": cluster_result.algo_name,
+                "best_k": max(cluster_result.k_scores, key=lambda k: cluster_result.k_scores[k]),
+                "scores": {str(k): v for k, v in cluster_result.k_scores.items()},
+                "algo_reasoning": cluster_result.algo_reasoning,
+            }, f, indent=2)
+        print('  Saved outputs/silhouette_curve.json')
+
+    # Save pipeline log
+    bus.save_log('outputs/pipeline_log.json')
+
 
 class Orchestrator:
     """
     Main pipeline coordinator.
 
     Loop order each iteration:
-      1. Feature selection (first run, or when flagged for re-selection)
-      2. Clustering
-         → if oversized cluster + Claude says reselect: loop to 1
-      3. Persona naming (Clarity Gate)
-         → if gate fails: loop to 2
-      4. Classifier validation (CV F1 gate)
-         → if poor: Claude routes to 1 or 2
-      5. Human checkpoint
+      0. User intent (first run only)
+      1. Dataset examination (first run only, or if orchestrator requests re-exam)
+      2. Feature selection (first run, or when flagged for re-selection)
+      3. Clustering
+         → if oversized cluster + Claude says reselect: loop to 2
+      4. Persona naming (Clarity Gate)
+         → if gate fails: loop to 3
+      5. Classifier validation (CV F1 gate)
+         → if poor: Claude routes to 2 or 3
+      6. Human checkpoint
          → approve  : save + exit
-         → recluster: loop to 2
-         → reselect : loop to 1
+         → recluster: loop to 3
+         → reselect : loop to 2
          → quit     : exit without saving
     """
 
     def __init__(self, config: dict):
         self.config = config
-        self.client = anthropic.Anthropic()
+        self.client = anthropic.Anthropic()   # ONLY the Orchestrator holds this
 
-        # ── Claude API usage tracking (monkeypatch) ────────────────────────
-        # Records every messages.create() call across all agents with:
-        #   agent, purpose, input_tokens, output_tokens, time_s
+        # ── Shared bus — the single communication channel for all agents ────────
+        self.bus = OrchestratorBus()
+
+        # ── Load skill & agent catalogs ────────────────────────────────────────
+        # Agents "know their skills" by having the relevant skill and agent
+        # documentation injected into their LLM calls as system context.
+        # This implements plan.md P8 — agents select skills based on the catalog.
+        self._skill_catalog = self._load_catalog('skill.md')
+        self._agent_catalog = self._load_catalog('agent.md')
+        if self._skill_catalog:
+            print(f'  [Orchestrator] Skill catalog loaded: {len(self._skill_catalog)} chars (skill.md)')
+        if self._agent_catalog:
+            print(f'  [Orchestrator] Agent catalog loaded: {len(self._agent_catalog)} chars (agent.md)')
+
+        # Skills injected into system context by calling-agent type:
+        # Routing agents (Clusterer, Classifier) get a brief pipeline skills summary
+        # so Claude understands what options are available when it makes routing decisions.
+        # Planning agents (FeatureEngineer, FeatureSelector, PersonaNamer) get their
+        # agent-specific role description so Claude adopts the right persona.
+        _ROUTING_PURPOSES = frozenset(['route', 'diagnose', 'routing'])
+        _skill_summary = self._skill_catalog[:3000] if self._skill_catalog else ''
+        _agent_summary = self._agent_catalog[:2000] if self._agent_catalog else ''
+
+        # ── Claude usage log ───────────────────────────────────────────────────
         self._claude_calls: list[dict] = []
-        self._active_agent: str = 'Orchestrator'
 
-        _orig_create = self.client.messages.create
-        _tracker     = self._claude_calls
-        _self_ref    = self          # capture for closure
+        # ── Register LLM handler on the bus ───────────────────────────────────
+        # Agents call bus.ask(agent, purpose, prompt) when they need LLM help.
+        # The Orchestrator intercepts, calls Claude, logs usage, returns the answer.
+        # The system parameter carries the skill/agent context so every call
+        # is aware of the pipeline's capability catalog (P8 — Modular Skills).
+        def _llm_handler(agent: str, purpose: str, prompt: str, max_tokens: int) -> str:
+            print(f"\n  [Orchestrator] ← {agent} requests LLM help: {purpose}")
 
-        def _tracked_create(**kwargs):
-            t0   = time.perf_counter()
-            resp = _orig_create(**kwargs)
-            _tracker.append({
-                'agent':         _self_ref._active_agent,
+            # Build system context: routing decisions get the full skill catalog;
+            # all other calls get a brief agent-role description.
+            purpose_lower = purpose.lower()
+            is_routing = any(kw in purpose_lower for kw in _ROUTING_PURPOSES)
+            if is_routing and _skill_summary:
+                system_ctx = (
+                    "You are an AI orchestrator for a multi-agent customer segmentation pipeline.\n"
+                    "The following skills and agents are available to you when making decisions.\n\n"
+                    f"{_skill_summary}\n\n"
+                    "Use your knowledge of these skills when deciding how to route the pipeline."
+                )
+            elif _agent_summary:
+                system_ctx = (
+                    "You are an AI component in a multi-agent customer segmentation pipeline.\n"
+                    f"Pipeline context:\n{_agent_summary}"
+                )
+            else:
+                system_ctx = (
+                    "You are an AI component in a multi-agent customer segmentation pipeline."
+                )
+
+            t0 = time.perf_counter()
+            resp = self.client.messages.create(
+                model='claude-sonnet-4-6',
+                max_tokens=max_tokens,
+                system=system_ctx,
+                messages=[{'role': 'user', 'content': prompt}],
+            )
+            elapsed = round(time.perf_counter() - t0, 2)
+            self._claude_calls.append({
+                'agent':         agent,
+                'purpose':       purpose,
                 'input_tokens':  resp.usage.input_tokens,
                 'output_tokens': resp.usage.output_tokens,
-                'time_s':        round(time.perf_counter() - t0, 2),
+                'time_s':        elapsed,
             })
-            return resp
+            print(
+                f"  [Orchestrator] → {agent}: LLM answered "
+                f"(in={resp.usage.input_tokens} out={resp.usage.output_tokens} {elapsed}s)"
+            )
+            return resp.content[0].text
 
-        self.client.messages.create = _tracked_create
-        # ──────────────────────────────────────────────────────────────────
+        self.bus.set_llm_handler(_llm_handler)
 
-        self.feature_agent    = FeatureSelectionAgent(self.client)
-        self.cluster_agent    = ClusteringAgent(self.client, config)
-        self.naming_agent     = PersonaNamingAgent(self.client)
-        self.classifier_agent = ClassifierAgent(self.client)
+        # ── Instantiate agents — they receive ONLY the bus, not the client ──────
+        # Each agent uses its own ML/stats skills and calls bus.ask() when it
+        # needs LLM reasoning. The Orchestrator remains the sole LLM gateway.
+        self.input_agent            = UserInputAgent(self.bus)
+        self.examiner_agent         = DatasetExaminerAgent(self.bus)
+        self.feature_engineer_agent = FeatureEngineerAgent(self.bus)
+        self.feature_agent          = FeatureSelectionAgent(self.bus)
+        self.cluster_agent          = ClusteringAgent(config, self.bus)
+        self.naming_agent           = PersonaNamingAgent(self.bus)
+        self.classifier_agent       = ClassifierAgent(self.bus)
 
-        # Telemetry: {agent_name: [elapsed_seconds, ...]}
+        # Telemetry
         self._timings: dict[str, list[float]] = defaultdict(list)
         self._pipeline_start: float = 0.0
 
@@ -203,9 +318,22 @@ class Orchestrator:
         self,
         features_path: str = 'data/processed/customer_features.parquet',
         max_total_iterations: int = 10,
+        skip_user_input: bool = False,
+        user_intent: UserIntent | None = None,
     ) -> dict:
         """
         Run the full multi-agent pipeline.
+
+        Parameters
+        ----------
+        features_path : str
+            Path to the engineered features parquet file.
+        max_total_iterations : int
+            Maximum number of full pipeline loops before saving best and exiting.
+        skip_user_input : bool
+            If True, skip the UserInputAgent (use user_intent or defaults).
+        user_intent : UserIntent | None
+            Pre-built intent (used if skip_user_input=True).
 
         Returns
         -------
@@ -215,24 +343,155 @@ class Orchestrator:
           'run_history' : list of dicts summarising each stage/iteration
         """
         print('\n' + '=' * 65)
-        print('Multi-Agent Persona Discovery Pipeline  (4 agents)')
+        print('Multi-Agent Clustering & Persona Discovery Pipeline')
         print('=' * 65)
         print(f'Config       : {self.config}')
         print(f'Features     : {features_path}')
         print(f'Max iters    : {max_total_iterations}')
         print(f'Classifier F1 threshold: {ClassifierAgent.F1_THRESHOLD}')
 
-        features_df = pd.read_parquet(features_path)
-        if 'cluster' in features_df.columns:
-            features_df = features_df.drop(columns=['cluster'])
-
-        print(f'Loaded {len(features_df)} customers × {len(features_df.columns)} features')
-
-        state = PipelineState(config=self.config)
         run_history = []
         self._timings = defaultdict(list)
         self._pipeline_start = time.perf_counter()
 
+        state = PipelineState(config=self.config)
+
+        # ── Step 0: User Intent ────────────────────────────────────────────────
+        if not skip_user_input:
+            self._active_agent = 'UserInput'
+            _t0 = time.perf_counter()
+            state.user_intent = self.input_agent.run(iteration=0)
+            self._timings['UserInput'].append(time.perf_counter() - _t0)
+        elif user_intent:
+            state.user_intent = user_intent
+
+        # ── Validate user intent path; fall back to features_path if missing ──
+        # UserInputAgent may default to a pre-built parquet that no longer exists.
+        # When that happens, substitute the features_path supplied to run().
+        if state.user_intent:
+            _ui_path = pathlib.Path(state.user_intent.dataset_path)
+            if not _ui_path.exists():
+                _fallback = pathlib.Path(features_path)
+                if _fallback.exists():
+                    print(
+                        f'  [Orchestrator] Dataset path not found: {state.user_intent.dataset_path!r}\n'
+                        f'  [Orchestrator] Falling back to: {features_path!r}'
+                    )
+                    state.user_intent = UserIntent(
+                        target_entity=state.user_intent.target_entity,
+                        business_purpose=state.user_intent.business_purpose,
+                        dataset_path=features_path,
+                        constraints=state.user_intent.constraints,
+                    )
+                else:
+                    print(
+                        f'  [Orchestrator] WARNING: neither {state.user_intent.dataset_path!r} '
+                        f'nor {features_path!r} found on disk.'
+                    )
+
+        # ── Resolve raw data path ──────────────────────────────────────────────
+        # user_intent.dataset_path may point to a raw transaction CSV (preferred)
+        # or a pre-engineered customer-feature parquet (backward compat).
+        raw_data_path = (
+            state.user_intent.dataset_path
+            if state.user_intent and state.user_intent.dataset_path
+            else None
+        )
+
+        # Detect whether to run FeatureEngineerAgent.
+        # We run it when the user gave us a raw transaction CSV.
+        # If they gave a parquet (or nothing), we load features_path directly.
+        _raw_suffix = pathlib.Path(raw_data_path).suffix.lower() if raw_data_path else ''
+        need_feature_engineering = raw_data_path is not None and _raw_suffix in ('.csv', '.tsv')
+
+        if need_feature_engineering:
+            # Load the full raw CSV — FeatureEngineer needs all rows.
+            print(f'\nLoading raw transaction data: {raw_data_path}')
+            full_raw_df = _load_df(raw_data_path)
+            print(f'  {len(full_raw_df):,} transactions × {len(full_raw_df.columns)} columns')
+            # Subsample for DatasetExaminer only (it only needs schema + stats)
+            if len(full_raw_df) > 50_000:
+                raw_df = full_raw_df.sample(50_000, random_state=42)
+                print(f'  (subsampled to 50,000 rows for DatasetExaminer)')
+            else:
+                raw_df = full_raw_df
+            features_df = None   # will be produced by FeatureEngineerAgent
+        else:
+            # Pre-engineered parquet — load directly and skip FeatureEngineer.
+            load_path = raw_data_path or features_path
+            print(f'\nLoading pre-engineered features: {load_path}')
+            features_df = _load_df(load_path)
+            if 'cluster' in features_df.columns:
+                features_df = features_df.drop(columns=['cluster'])
+            print(f'  {len(features_df)} customers × {len(features_df.columns)} features')
+            raw_df = features_df
+            full_raw_df = None
+
+        # ── Step 1: Dataset Examination (once per pipeline run) ────────────────
+        self._active_agent = 'DatasetExaminer'
+        _t0 = time.perf_counter()
+        dataset_profile = self.examiner_agent.run(
+            user_intent=state.user_intent or UserIntent(
+                target_entity="customers",
+                business_purpose="understand spending behaviour",
+                dataset_path=features_path,
+            ),
+            df=raw_df,
+            iteration=0,
+        )
+        self._timings['DatasetExaminer'].append(time.perf_counter() - _t0)
+        state.dataset_profile = dataset_profile
+
+        if dataset_profile is None:
+            print('\n[Orchestrator] DatasetExaminer BLOCKED — cannot proceed.')
+            return {'status': 'blocked', 'personas': None, 'run_history': run_history}
+
+        run_history.append({
+            'iteration': 0,
+            'stage': 'dataset_examination',
+            'n_rows': dataset_profile.n_rows,
+            'suggested_groups': dataset_profile.suggested_feature_groups,
+            'algo_hint': dataset_profile.algo_hint,
+        })
+
+        # ── Step 2: Feature Engineering (only when a raw CSV was provided) ─────
+        # When the user gave a .csv path, the FeatureEngineerAgent turns the
+        # transaction-level data into a customer-level feature matrix and saves
+        # it to data/processed/. Downstream agents then use that parquet.
+        if need_feature_engineering:
+            print('\n[Orchestrator] Launching FeatureEngineerAgent on raw transaction data...')
+            _t0 = time.perf_counter()
+            self._active_agent = 'FeatureEngineer'
+            try:
+                features_df, fe_result = self.feature_engineer_agent.run(
+                    raw_df=full_raw_df,
+                    user_intent=state.user_intent or UserIntent(
+                        target_entity='customers',
+                        business_purpose='understand spending behaviour to personalise offers',
+                        dataset_path=raw_data_path,
+                    ),
+                    dataset_profile=dataset_profile,
+                    output_path='data/processed/engineered_features.parquet',
+                    iteration=0,
+                )
+                self._timings['FeatureEngineer'].append(time.perf_counter() - _t0)
+                run_history.append({
+                    'iteration': 0,
+                    'stage': 'feature_engineering',
+                    'n_customers': fe_result.n_customers,
+                    'n_features': fe_result.n_features,
+                    'groups_built': fe_result.groups_built,
+                    'elapsed_s': round(self._timings['FeatureEngineer'][-1], 1),
+                })
+                print(
+                    f'  [Orchestrator] Feature engineering done: '
+                    f'{fe_result.n_features} features × {fe_result.n_customers} customers'
+                )
+            except RuntimeError as e:
+                print(f'\n[Orchestrator] FeatureEngineer BLOCKED: {e}')
+                return {'status': 'blocked', 'personas': None, 'run_history': run_history}
+
+        # ── Main pipeline loop ─────────────────────────────────────────────────
         while state.total_iterations < max_total_iterations:
             state.total_iterations += 1
             iteration = state.total_iterations
@@ -240,12 +499,18 @@ class Orchestrator:
             print(f'ITERATION {iteration} / {max_total_iterations}')
             print(f'{"─"*65}')
 
-            # ── (1) Feature Selection ──────────────────────────────────────────
+            # Check for hard blocks from the bus
+            if self.bus.has_hard_block():
+                print('\n[Orchestrator] Hard block detected — triggering human checkpoint.')
+                break
+
+            # ── (2) Feature Selection ──────────────────────────────────────────
             if state.needs_feature_selection:
                 _t0 = time.perf_counter()
                 self._active_agent = 'FeatureSelector'
                 fs = self.feature_agent.run(
                     features_df,
+                    user_intent=state.user_intent,
                     feedback=state.fs_feedback,
                     iteration=iteration,
                 )
@@ -255,16 +520,19 @@ class Orchestrator:
                     'iteration': iteration,
                     'stage': 'feature_selection',
                     'n_features': fs.n_features,
+                    'n_removed_vif': len(fs.removed_by_vif),
                     'elapsed_s': round(self._timings['FeatureSelector'][-1], 1),
                     'reasoning': fs.reasoning,
                 })
 
-            # ── (2) Clustering ─────────────────────────────────────────────────
+            # ── (3) Clustering ─────────────────────────────────────────────────
             _t0 = time.perf_counter()
             self._active_agent = 'Clusterer'
             cr = self.cluster_agent.run(
                 features_df,
                 selected_features=state.selected_features,
+                user_intent=state.user_intent,
+                dataset_profile=state.dataset_profile,
                 history=state.clustering_history,
                 feedback=state.cluster_feedback,
                 iteration=iteration,
@@ -282,9 +550,9 @@ class Orchestrator:
                     'elapsed_s': round(self._timings['Clusterer'][-1], 1),
                     'reasoning': cr.reasoning,
                 })
-                continue   # ← back to feature selection
+                continue
 
-            # ── (3) Persona Naming ─────────────────────────────────────────────
+            # ── (4) Persona Naming ─────────────────────────────────────────────
             _t0 = time.perf_counter()
             self._active_agent = 'PersonaNamer'
             nr = self.naming_agent.run(
@@ -304,6 +572,7 @@ class Orchestrator:
                 'avg_confidence': nr.avg_confidence,
                 'silhouette': cr.silhouette,
                 'n_leaf': cr.n_leaf,
+                'algo': cr.algo_name,
                 'elapsed_s': round(self._timings['PersonaNamer'][-1], 1),
                 'issues': nr.issues,
             })
@@ -312,9 +581,9 @@ class Orchestrator:
                 state.cluster_feedback = f'Clarity Gate failed: {"; ".join(nr.issues)}'
                 state.naming_feedback = ''
                 print(f'\n[Orchestrator] Clarity Gate failed → re-clustering.')
-                continue   # ← back to clustering
+                continue
 
-            # ── (4) Classifier Validation ──────────────────────────────────────
+            # ── (5) Classifier Validation ──────────────────────────────────────
             _t0 = time.perf_counter()
             self._active_agent = 'Classifier'
             clf = self.classifier_agent.run(
@@ -342,19 +611,19 @@ class Orchestrator:
                 print(f'\n[Orchestrator] Classifier → reselect features: {clf.reasoning}')
                 state.request_feature_reselection(clf.reasoning)
                 state.classifier_feedback = clf.reasoning
-                continue   # ← back to feature selection
+                continue
 
             elif clf.action == 'recluster':
                 print(f'\n[Orchestrator] Classifier → re-cluster: {clf.reasoning}')
                 state.cluster_feedback = f'Classifier CV F1={clf.cv_f1_macro:.3f} too low: {clf.reasoning}'
                 state.classifier_feedback = clf.reasoning
-                continue   # ← back to clustering
+                continue
 
             # clf.action == 'proceed' — track best result
             state.update_best(nr, cr, clf)
 
-            # ── Human Checkpoint ───────────────────────────────────────────────
-            decision = human_checkpoint(nr.personas, cr, clf)
+            # ── (6) Human Checkpoint ───────────────────────────────────────────
+            decision = human_checkpoint(nr.personas, cr, clf, self.bus)
 
             run_history.append({
                 'iteration': iteration,
@@ -365,7 +634,7 @@ class Orchestrator:
 
             if decision.action == 'approve':
                 print('\n[Orchestrator] Approved! Saving outputs...')
-                save_outputs(cr, nr, clf)
+                save_outputs(cr, nr, clf, self.bus)
                 self._print_timing_summary()
                 return {
                     'status': 'success',
@@ -412,7 +681,12 @@ class Orchestrator:
                 + (f'  cv_f1={best_clf.cv_f1_macro:.3f}' if best_clf else '')
             )
             print('  Saving best result...')
-            save_outputs(state.best_clustering_result, state.best_naming_result, best_clf)
+            save_outputs(
+                state.best_clustering_result,
+                state.best_naming_result,
+                best_clf,
+                self.bus,
+            )
 
         return {
             'status': 'max_iterations_reached',
@@ -422,19 +696,26 @@ class Orchestrator:
             'claude_usage': self._claude_usage_dict(),
         }
 
+    # ── Catalog helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _load_catalog(path: str) -> str:
+        """Load a markdown catalog file, returning '' if not found."""
+        p = pathlib.Path(path)
+        return p.read_text(encoding='utf-8') if p.exists() else ''
+
     # ── Telemetry helpers ──────────────────────────────────────────────────────
 
     def _timing_dict(self) -> dict:
-        """Return a structured timing summary for inclusion in the result dict."""
         total_s = time.perf_counter() - self._pipeline_start
-        agent_order = ['FeatureSelector', 'Clusterer', 'PersonaNamer', 'Classifier']
+        agent_order = ['UserInput', 'DatasetExaminer', 'FeatureEngineer', 'FeatureSelector', 'Clusterer', 'PersonaNamer', 'Classifier']
         agents = {}
         for name in agent_order:
             runs = self._timings.get(name, [])
             agents[name] = {
-                'calls':        len(runs),
-                'total_s':      round(sum(runs), 1),
-                'per_call_s':   [round(r, 1) for r in runs],
+                'calls':      len(runs),
+                'total_s':    round(sum(runs), 1),
+                'per_call_s': [round(r, 1) for r in runs],
             }
         return {
             'total_s': round(total_s, 1),
@@ -442,8 +723,6 @@ class Orchestrator:
         }
 
     def _claude_usage_dict(self) -> dict:
-        """Return per-agent Claude API usage summary."""
-        from collections import defaultdict
         by_agent: dict = defaultdict(lambda: {'calls': 0, 'input_tokens': 0, 'output_tokens': 0, 'time_s': 0.0, 'detail': []})
         for c in self._claude_calls:
             a = c['agent']
@@ -460,16 +739,15 @@ class Orchestrator:
         total_out = sum(c['output_tokens'] for c in self._claude_calls)
         total_t   = sum(c['time_s']        for c in self._claude_calls)
         return {
-            'by_agent':     dict(by_agent),
-            'total_calls':  len(self._claude_calls),
+            'by_agent':            dict(by_agent),
+            'total_calls':         len(self._claude_calls),
             'total_input_tokens':  total_in,
             'total_output_tokens': total_out,
             'total_claude_time_s': round(total_t, 1),
-            'raw_calls':    list(self._claude_calls),
+            'raw_calls':           list(self._claude_calls),
         }
 
     def _print_timing_summary(self) -> None:
-        """Print a human-readable timing table to stdout."""
         td = self._timing_dict()
         total_s = td['total_s']
 
@@ -480,10 +758,13 @@ class Orchestrator:
         print('-' * 65)
 
         AGENT_LABELS = {
-            'FeatureSelector': '(1) FeatureSelector',
-            'Clusterer':       '(2) Clusterer',
-            'PersonaNamer':    '(3) PersonaNamer',
-            'Classifier':      '(4) Classifier',
+            'UserInput':       '(0) UserInput',
+            'DatasetExaminer': '(1) DatasetExaminer',
+            'FeatureEngineer': '(2) FeatureEngineer',
+            'FeatureSelector': '(3) FeatureSelector',
+            'Clusterer':       '(4) Clusterer',
+            'PersonaNamer':    '(5) PersonaNamer',
+            'Classifier':      '(6) Classifier',
         }
         for name, label in AGENT_LABELS.items():
             info = td['agents'].get(name, {'calls': 0, 'total_s': 0.0, 'per_call_s': []})

@@ -1,6 +1,8 @@
 """
 ClassifierAgent  (Agent 4)
 
+Contract: docs/agents/classifier.md. Skills: docs/skills/orchestrator_bus.md.
+
 Treats the persona labels produced by PersonaNamingAgent as pseudo ground truth,
 trains a Random Forest classifier on the customer features, and evaluates
 separability via stratified cross-validation.
@@ -24,7 +26,6 @@ from __future__ import annotations
 import json
 import numpy as np
 import pandas as pd
-import anthropic
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
@@ -36,6 +37,7 @@ from sklearn.metrics import (
 )
 
 from agents.state import ClassifierResult
+from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 
 # ── Constants (mirrors notebook 03 / 05) ──────────────────────────────────────
 CATEGORIES = [
@@ -70,8 +72,10 @@ class ClassifierAgent:
     # CV macro-F1 below this triggers Claude consultation
     F1_THRESHOLD = 0.70
 
-    def __init__(self, client: anthropic.Anthropic):
-        self.client = client
+    def __init__(self, bus: OrchestratorBus):
+        # ClassifierAgent trains and evaluates the RF using its own ML skills.
+        # If F1 is low, it asks the Orchestrator for LLM routing diagnosis.
+        self.bus = bus
 
     def run(
         self,
@@ -178,7 +182,7 @@ class ClassifierAgent:
         # ── Decide: proceed or route back? ────────────────────────────────────
         if cv_f1_macro >= self.F1_THRESHOLD:
             print(f'  Performance OK — proceeding.')
-            return ClassifierResult(
+            result = ClassifierResult(
                 action='proceed',
                 cv_accuracy=cv_accuracy,
                 cv_f1_macro=cv_f1_macro,
@@ -190,6 +194,31 @@ class ClassifierAgent:
                 model=rf,
                 label_encoder=le,
             )
+            if self.bus:
+                worst_3 = sorted(per_class_f1.items(), key=lambda x: x[1])[:3]
+                self.bus.report(OrchestratorMessage(
+                    agent="Classifier",
+                    iteration=iteration,
+                    status="success",
+                    what_was_done=(
+                        f"Trained RF, {n_splits}-fold stratified CV. "
+                        f"CV macro-F1={cv_f1_macro:.3f} ≥ {self.F1_THRESHOLD} threshold."
+                    ),
+                    what_was_not_done="Did not compute SHAP values.",
+                    doubts=(
+                        f"Lowest-F1 personas: "
+                        + ", ".join(f"{n}({s:.2f})" for n, s in worst_3)
+                        if worst_3 else ""
+                    ),
+                    issues=[],
+                    metrics={
+                        "cv_f1_macro": round(cv_f1_macro, 4),
+                        "cv_accuracy": round(cv_accuracy, 4),
+                        "n_classes": n_classes,
+                    },
+                    recommendation="proceed",
+                ))
+            return result
 
         # ── Performance is poor — ask Claude for routing ───────────────────────
         print(f'  Performance below threshold ({cv_f1_macro:.4f} < {self.F1_THRESHOLD}). Consulting Claude...')
@@ -206,6 +235,33 @@ class ClassifierAgent:
         action = decision.get('action', 'recluster')
         reasoning = decision.get('reasoning', '')
         print(f'  Claude decision: {action}  |  {reasoning}')
+
+        if self.bus:
+            worst_3 = sorted(per_class_f1.items(), key=lambda x: x[1])[:3]
+            self.bus.report(OrchestratorMessage(
+                agent="Classifier",
+                iteration=iteration,
+                status="warning",
+                what_was_done=(
+                    f"Trained RF, {n_splits}-fold CV. "
+                    f"CV macro-F1={cv_f1_macro:.3f} < {self.F1_THRESHOLD}. "
+                    f"Claude routed: {action}."
+                ),
+                what_was_not_done="Did not compute SHAP values.",
+                doubts=f"Hardest personas: " + ", ".join(f"{n}({s:.2f})" for n, s in worst_3),
+                issues=[
+                    f"CV macro-F1={cv_f1_macro:.3f} below threshold {self.F1_THRESHOLD}. "
+                    f"Clusters may not be well-separated."
+                ],
+                metrics={
+                    "cv_f1_macro": round(cv_f1_macro, 4),
+                    "cv_accuracy": round(cv_accuracy, 4),
+                    "n_classes": n_classes,
+                    "claude_action": action,
+                },
+                recommendation="retry",
+                context={"claude_routing": decision},
+            ))
 
         return ClassifierResult(
             action=action,
@@ -275,12 +331,14 @@ Diagnose the root cause and recommend ONE of:
 Return ONLY a valid JSON object (no markdown, no extra text):
 {{"action": "reselect_features" or "recluster", "reasoning": "2-3 sentences"}}"""
 
-        response = self.client.messages.create(
-            model='claude-sonnet-4-6',
+        # ClassifierAgent has done its own ML work (CV, F1, feature importances).
+        # It now asks the Orchestrator to diagnose the root cause and route.
+        raw = self.bus.ask(
+            agent="Classifier",
+            purpose=f"diagnose low CV F1={cv_f1_macro:.3f} — route to reselect_features or recluster",
+            prompt=prompt,
             max_tokens=512,
-            messages=[{'role': 'user', 'content': prompt}],
-        )
-        raw = response.content[0].text.strip()
+        ).strip()
         if '```' in raw:
             for part in raw.split('```'):
                 p = part.strip()

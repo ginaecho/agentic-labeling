@@ -45,21 +45,44 @@ import agents.orchestrator as _orch_mod
 from agents.state import HumanDecision
 
 _orig_chk = _orch_mod.human_checkpoint
-def _auto_approve(personas, cr, clf):
-    _orig_chk(personas, cr, clf)
+def _auto_approve(personas, cr, clf, bus):
+    _orig_chk(personas, cr, clf, bus)
     print('\n[Auto-approve] Selecting option 1 (Approve).')
     return HumanDecision(action='approve')
 _orch_mod.human_checkpoint = _auto_approve
 
+# ── Resolve default features path ─────────────────────────────────────────────
+# Prefer the pre-engineered parquet when it exists; otherwise point to the raw
+# CSV so UserInputAgent's default will trigger the full feature-engineering path.
+_parquet = pathlib.Path('data/processed/customer_features.parquet')
+_raw_csv = pathlib.Path('data/raw/fraudTrain.csv')
+if _parquet.exists():
+    _default_features_path = str(_parquet)
+elif _raw_csv.exists():
+    _default_features_path = str(_raw_csv)
+    print(f'[run_pipeline] Pre-built parquet not found — will use raw CSV: {_raw_csv}')
+else:
+    _default_features_path = str(_parquet)   # orchestrator will surface the error
+
 # ── Run pipeline ──────────────────────────────────────────────────────────────
 orchestrator = Orchestrator(config)
 result = orchestrator.run(
-    features_path='data/processed/customer_features.parquet',
+    features_path=_default_features_path,
     max_total_iterations=10,
+    skip_user_input=False,   # UserInputAgent will prompt for your clustering intent
 )
 
+# ── Bail out if the pipeline was blocked or quit before saving outputs ─────────
+if result.get('status') in ('blocked', 'quit'):
+    print(f"\n[run_pipeline] Pipeline ended with status={result['status']} — no outputs to display.")
+    sys.exit(0)
+
 # ── Load saved outputs ────────────────────────────────────────────────────────
-personas_data      = json.loads(pathlib.Path('outputs/personas.json').read_text())
+_personas_path = pathlib.Path('outputs/personas.json')
+if not _personas_path.exists():
+    print('\n[run_pipeline] outputs/personas.json not found — pipeline may not have completed.')
+    sys.exit(1)
+personas_data      = json.loads(_personas_path.read_text())
 clf_metrics        = json.loads(pathlib.Path('outputs/classifier_metrics.json').read_text()) \
                      if pathlib.Path('outputs/classifier_metrics.json').exists() else {}
 

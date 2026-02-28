@@ -7,12 +7,42 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
+# ── New: intent & dataset profile ─────────────────────────────────────────────
+
+@dataclass
+class UserIntent:
+    """Clustering intent captured from the user (from UserInputAgent)."""
+    target_entity: str         # what is being clustered
+    business_purpose: str      # why we are clustering
+    dataset_path: str          # path to the feature parquet/CSV
+    constraints: str = ""      # optional free-text constraints
+
+
+@dataclass
+class DatasetProfile:
+    """Structured profile of the raw dataset (from DatasetExaminerAgent)."""
+    n_rows: int
+    n_cols: int
+    column_types: dict[str, str]
+    missing_rates: dict[str, float]
+    distribution_summary: dict[str, dict[str, float]]
+    high_cardinality_cols: list[str]
+    suggested_feature_groups: list[str]
+    feature_group_reasoning: str
+    warnings: list[str] = field(default_factory=list)
+    algo_hint: str = ""        # 'hierarchical' | 'kmeans'
+
+
+# ── Existing result dataclasses ────────────────────────────────────────────────
+
 @dataclass
 class FeatureSelectionResult:
     selected_features: list[str]
     n_features: int
     pca_scores: dict[str, float]       # feature -> pca importance score
     ae_scores: dict[str, float]        # feature -> autoencoder reconstruction error
+    vif_table: dict[str, float]        # feature -> VIF value (NEW)
+    removed_by_vif: list[str]          # features removed by VIF gate (NEW)
     reasoning: str
     iteration: int
 
@@ -29,6 +59,8 @@ class ClusteringResult:
     iteration: int
     algo_name: str = ''
     algo_detail: str = ''
+    k_scores: dict = field(default_factory=dict)   # {k: silhouette_score} from optimizer (NEW)
+    algo_reasoning: str = ''                        # from algo_recommender (NEW)
 
 
 @dataclass
@@ -62,9 +94,15 @@ class HumanDecision:
     feedback: str = ''
 
 
+# ── Pipeline state ─────────────────────────────────────────────────────────────
+
 @dataclass
 class PipelineState:
     config: dict
+
+    # ── Intent & dataset (NEW) ──────────────────────────────────────────────
+    user_intent: Optional[UserIntent] = None
+    dataset_profile: Optional[DatasetProfile] = None
 
     # Current feature selection
     selected_features: list[str] = field(default_factory=list)

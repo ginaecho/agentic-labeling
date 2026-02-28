@@ -1,18 +1,22 @@
 """
 PersonaNamingAgent
 
+Contract: docs/agents/persona_namer.md. Skills: docs/skills/orchestrator_bus.md.
+
 Sends cluster profiles to Claude and applies the Clarity Gate.
 Reuses build_all_clusters_prompt() and _format_cluster_block() logic
 verbatim from notebook 04 cell 5eace074 and Clarity Gate from cell c2e5b2fc.
+
+Enhanced: reports structured status to OrchestratorBus.
 """
 from __future__ import annotations
 
 import json
 import numpy as np
-import anthropic
 from collections import defaultdict
 
 from agents.state import NamingResult
+from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 
 TONE_INSTRUCTIONS = {
     'easy': (
@@ -177,10 +181,13 @@ Return ONLY a valid JSON object (no markdown, no extra text) with this structure
 class PersonaNamingAgent:
     """
     Calls Claude to name each cluster, then applies the Clarity Gate.
+    Reports structured status to OrchestratorBus.
     """
 
-    def __init__(self, client: anthropic.Anthropic):
-        self.client = client
+    def __init__(self, bus: OrchestratorBus):
+        # PersonaNamingAgent builds prompts from cluster stats (its own skill).
+        # It asks the Orchestrator for LLM reasoning to name and describe clusters.
+        self.bus = bus
 
     def run(
         self,
@@ -212,17 +219,18 @@ class PersonaNamingAgent:
             tone_instr += f'\n\nAdditional guidance: {feedback}'
 
         n_leaf = len(profiles)
-        print(f'  Calling Claude with {n_leaf} clusters...')
+        print(f'  Prepared cluster prompt for {n_leaf} clusters — asking Orchestrator for naming...')
 
         prompt = build_all_clusters_prompt(profiles, lineage, tone_instr)
 
-        response = self.client.messages.create(
-            model='claude-sonnet-4-6',
+        # PersonaNamingAgent has built the full cluster data table itself.
+        # It asks the Orchestrator for LLM reasoning to name and describe each cluster.
+        raw = self.bus.ask(
+            agent="PersonaNamer",
+            purpose=f"name and describe {n_leaf} clusters (tone={tone!r})",
+            prompt=prompt,
             max_tokens=4096,
-            messages=[{'role': 'user', 'content': prompt}],
-        )
-
-        raw = response.content[0].text.strip()
+        ).strip()
         if '```' in raw:
             for part in raw.split('```'):
                 p = part.strip()
@@ -282,6 +290,43 @@ class PersonaNamingAgent:
             print(f'  Clarity Gate PASSED  (avg_conf={avg_conf:.1f}, unique={names_unique})')
         else:
             print(f'  Clarity Gate FAILED: {issues}')
+
+        # ── Report to orchestrator ─────────────────────────────────────────────
+        if self.bus:
+            self.bus.report(OrchestratorMessage(
+                agent="PersonaNamer",
+                iteration=iteration,
+                status="success" if passed else ("warning" if avg_conf >= 4.0 else "blocked"),
+                what_was_done=(
+                    f"Named {n_leaf} clusters using Claude (tone={tone!r}). "
+                    f"Clarity Gate {'PASSED' if passed else 'FAILED'}. "
+                    f"Avg confidence={avg_conf:.1f}/10."
+                ),
+                what_was_not_done=(
+                    "Did not validate that description text references specific numbers "
+                    "(only checked confidence and name uniqueness)."
+                ),
+                doubts=(
+                    f"Low-confidence clusters: "
+                    + ", ".join(
+                        f'C{cid}(conf={p.get("confidence","?")})'
+                        for cid, p in personas.items()
+                        if isinstance(p.get("confidence"), (int, float)) and p["confidence"] < 6
+                    )
+                    if personas and not passed else ""
+                ),
+                issues=issues,
+                metrics={
+                    "n_clusters": n_leaf,
+                    "avg_confidence": round(avg_conf, 2),
+                    "gate_passed": passed,
+                    "names_unique": names_unique,
+                },
+                recommendation="proceed" if passed else "retry",
+                context={
+                    "persona_names": {cid: p.get("name") for cid, p in personas.items()} if personas else {},
+                },
+            ))
 
         return NamingResult(
             action=action,

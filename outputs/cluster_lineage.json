@@ -9,8 +9,13 @@
       4,
       5
     ],
-    "pct_of_total": 0.192,
-    "pct_of_parent": 1.0
+    "pct_of_total": 0.546,
+    "pct_of_parent": 1.0,
+    "split_into": [
+      6,
+      7,
+      8
+    ]
   },
   "1": {
     "parent": null,
@@ -22,7 +27,7 @@
       4,
       5
     ],
-    "pct_of_total": 0.012,
+    "pct_of_total": 0.241,
     "pct_of_parent": 1.0
   },
   "2": {
@@ -35,7 +40,7 @@
       4,
       5
     ],
-    "pct_of_total": 0.239,
+    "pct_of_total": 0.023,
     "pct_of_parent": 1.0
   },
   "3": {
@@ -48,13 +53,8 @@
       4,
       5
     ],
-    "pct_of_total": 0.526,
-    "pct_of_parent": 1.0,
-    "split_into": [
-      6,
-      7,
-      8
-    ]
+    "pct_of_total": 0.019,
+    "pct_of_parent": 1.0
   },
   "4": {
     "parent": null,
@@ -66,7 +66,7 @@
       3,
       5
     ],
-    "pct_of_total": 0.019,
+    "pct_of_total": 0.1,
     "pct_of_parent": 1.0
   },
   "5": {
@@ -79,37 +79,37 @@
       3,
       4
     ],
-    "pct_of_total": 0.012,
+    "pct_of_total": 0.071,
     "pct_of_parent": 1.0
   },
   "6": {
-    "parent": 3,
+    "parent": 0,
     "depth": 1,
     "siblings": [
       7,
       8
     ],
-    "pct_of_total": 0.231,
-    "pct_of_parent": 0.439
+    "pct_of_total": 0.269,
+    "pct_of_parent": 0.492
   },
   "7": {
-    "parent": 3,
+    "parent": 0,
     "depth": 1,
     "siblings": [
       6,
       8
     ],
-    "pct_of_total": 0.14,
-    "pct_of_parent": 0.267
+    "pct_of_total": 0.194,
+    "pct_of_parent": 0.355
   },
   "8": {
-    "parent": 3,
+    "parent": 0,
     "depth": 1,
     "siblings": [
       6,
       7
     ],
-    "pct_of_total": 0.155,
-    "pct_of_parent": 0.295
+    "pct_of_total": 0.083,
+    "pct_of_parent": 0.153
   }
 }
