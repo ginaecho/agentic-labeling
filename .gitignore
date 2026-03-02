@@ -18,6 +18,7 @@ __pycache__/
 
 # Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
 # Editor
 .claude/
