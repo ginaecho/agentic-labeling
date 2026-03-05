@@ -72,7 +72,11 @@ multicollinearity. Also flags high pairwise correlations and low-variance
 features. Provides iterative removal to bring all VIFs below a threshold.
 
 ### Reference
-- VIF interpretation: VIF < 5 = acceptable; VIF > 10 = severe collinearity
+- VIF interpretation: VIF = 1 (no correlation); VIF 1–5 (moderate, acceptable);
+  VIF 5–10 (high, consider removing); VIF > 10 (severe collinearity)
+- Default threshold is **10.0** — tuned dynamically by the Orchestrator each iteration.
+  The Orchestrator may raise it (e.g. to 15–18) when transaction ratio/spend features
+  are legitimately correlated but still carry distinct behavioural signal.
 - See: https://medium.com/@rasdhar.panchal/feature-selection-using-p-values-and-vif-in-linear-regression-6bf25b652d99
 
 ### API

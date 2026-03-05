@@ -30,18 +30,34 @@ its retry budget.
 1. Receive `OrchestratorMessage` from every agent via `orchestrator_bus`
 2. Log all messages to `pipeline_log` (saved to `outputs/pipeline_log.json`)
 3. Use Claude to analyse failure reports and decide routing
-4. Enforce per-loop retry budgets
-5. Present human checkpoint with full pipeline log summary
+4. After each failed iteration, call `_ask_parameter_tuning()` to let Claude propose
+   new values for `vif_threshold`, `k_range`, `algorithm`, `min_silhouette`, and
+   `feature_focus` — these are passed directly to FeatureSelector and Clusterer
+5. Enforce per-loop retry budgets (default `max_total_iterations=10`)
+6. At max iterations with no approved result, deliver a best-effort analysis by
+   running PersonaNamer (force_proceed=True) and Classifier on the highest-silhouette
+   clustering observed across all iterations
+7. Present human checkpoint with full pipeline log summary
+
+### Dynamic tuning parameters (managed by Orchestrator, not config.yaml)
+| Parameter | Default | Claude's tuning range |
+|-----------|---------|----------------------|
+| `vif_threshold` | 10.0 | 5 – 25 |
+| `k_range` | `[3,4,5,6,7,8,10,12,15]` | any subset of k ∈ [2,20] |
+| `algorithm` | null (auto) | `"kmeans"`, `"hierarchical"`, `null` |
+| `min_silhouette` | 0.05 | 0.02 – 0.12 |
+| `feature_focus` | `""` | free-text hint injected into FeatureSelector prompt |
 
 ### Routing decisions (Claude-assisted)
-| Agent reports | Orchestrator considers |
-|---------------|------------------------|
+| Agent reports | Orchestrator action |
+|---------------|---------------------|
 | `FeatureSelector BLOCKED` | → route to FeatureEngineer (more features needed) |
-| `Clusterer WARNING` (low silhouette) | → try different k or algorithm |
-| `Clusterer BLOCKED` | → route to FeatureSelector |
-| `PersonaNamer BLOCKED` | → route to Clusterer |
-| `Classifier BLOCKED` | → route to FeatureSelector or Clusterer |
+| `Clusterer WARNING` (low silhouette) | → proceed with warning; tune params |
+| `Clusterer BLOCKED` (sil < min_silhouette) | → tune params → route to FeatureSelector |
+| `PersonaNamer BLOCKED` (Clarity Gate fail) | → tune params → route to Clusterer |
+| `Classifier BLOCKED` (F1 < 0.70) | → tune params → route to FeatureSelector or Clusterer |
 | Any `recommendation=escalate` | → trigger human checkpoint immediately |
+| Max iterations reached, no approved result | → best-effort fallback (force_proceed=True) |
 
 ---
 

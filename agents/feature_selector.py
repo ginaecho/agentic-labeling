@@ -251,10 +251,6 @@ class FeatureSelectionAgent:
         table_str = '\n'.join(table_lines)
 
         # ── Step 8: Ask Claude ─────────────────────────────────────────────────
-        focus_section = (
-            f'\nOrchestrator guidance: {feature_focus}\n'
-            if feature_focus else ''
-        )
         feedback_section = (
             f'\nFeedback from previous round:\n{feedback}\n'
             if feedback else ''
