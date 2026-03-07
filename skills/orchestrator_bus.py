@@ -153,6 +153,8 @@ class OrchestratorBus:
         self._query_log.append({
             "agent": agent,
             "purpose": purpose,
+            "prompt": prompt,
+            "response": result,
             "prompt_chars": len(prompt),
             "response_chars": len(result),
         })
@@ -221,13 +223,50 @@ class OrchestratorBus:
     def save_log(self, path: str = "outputs/pipeline_log.json") -> None:
         """Persist the full message log and LLM query log to JSON."""
         pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+        # JSON omits full prompt/response to keep file size down; full text is in .txt log
         serialisable = {
             "status_messages": [asdict(m) for m in self._log],
-            "llm_queries": self._query_log,
+            "llm_queries": [
+                {k: v for k, v in q.items() if k in ("agent", "purpose", "prompt_chars", "response_chars")}
+                for q in self._query_log
+            ],
         }
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(serialisable, f, indent=2, default=str)
         print(
             f"  [Bus] Pipeline log saved → {path}  "
             f"({len(self._log)} status messages, {len(self._query_log)} LLM queries)"
         )
+
+    def save_log_txt(self, path: str = "outputs/agents_conversation.txt") -> None:
+        """Write a human-readable .txt log of agent status messages and full LLM conversations."""
+        pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+        lines = []
+        lines.append("=" * 80)
+        lines.append("AGENT STATUS MESSAGES")
+        lines.append("=" * 80)
+        for m in self._log:
+            lines.append(f"\n[{m.agent}] Iteration {m.iteration}  Status: {m.status.upper()}  Recommendation: {m.recommendation}")
+            lines.append(f"  Done:     {m.what_was_done}")
+            if m.what_was_not_done:
+                lines.append(f"  Not done: {m.what_was_not_done}")
+            if m.doubts:
+                lines.append(f"  Doubts:   {m.doubts}")
+            for issue in m.issues:
+                lines.append(f"  Issue:    {issue}")
+            if m.metrics:
+                lines.append(f"  Metrics:  {m.metrics}")
+            lines.append("")
+        lines.append("=" * 80)
+        lines.append("LLM CONVERSATIONS (Agent ↔ Orchestrator)")
+        lines.append("=" * 80)
+        for i, q in enumerate(self._query_log, 1):
+            lines.append(f"\n--- LLM call {i}: {q.get('agent', '?')} — {q.get('purpose', '?')} ---")
+            lines.append("\n[PROMPT]")
+            lines.append(q.get("prompt", "(none)"))
+            lines.append("\n[RESPONSE]")
+            lines.append(q.get("response", "(none)"))
+            lines.append("")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        print(f"  [Bus] Agents conversation log saved → {path}")

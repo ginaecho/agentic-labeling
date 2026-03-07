@@ -18,7 +18,48 @@ Console report sections:
   AGENTS & TIME                — wall-clock timing per agent
   TOTAL TIME                   — pipeline total
 """
-import csv, io, os, pathlib, sys, textwrap, time
+import atexit
+import csv
+import io
+import os
+import pathlib
+import sys
+import textwrap
+import time
+from datetime import datetime
+
+
+class _Tee:
+    """Write to both the original stream and a log file."""
+    def __init__(self, stream, logfile):
+        self._stream = stream
+        self._logfile = logfile
+    def write(self, data):
+        self._stream.write(data)
+        if self._logfile and not self._logfile.closed:
+            self._logfile.write(data)
+    def flush(self):
+        self._stream.flush()
+        if self._logfile and not self._logfile.closed:
+            self._logfile.flush()
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+_log_file = None
+_orig_stdout = _orig_stderr = None
+
+
+def _close_log():
+    global _log_file, _orig_stdout, _orig_stderr
+    if _log_file is not None and not _log_file.closed:
+        _log_file.flush()
+        _log_file.close()
+    if _orig_stdout is not None:
+        sys.stdout = _orig_stdout
+    if _orig_stderr is not None:
+        sys.stderr = _orig_stderr
+
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
 env_path = pathlib.Path(__file__).parent / '.env'
@@ -37,7 +78,20 @@ import json
 import yaml
 from agents.orchestrator import Orchestrator
 
-with open('config.yaml') as f:
+# ── Tee all terminal output to a log file ─────────────────────────────────────
+_root = pathlib.Path(__file__).resolve().parent
+_out_dir = _root / 'outputs'
+_out_dir.mkdir(parents=True, exist_ok=True)
+_log_path = _out_dir / f"pipeline_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+_log_file = _log_path.open('w', encoding='utf-8')
+_orig_stdout = sys.stdout
+_orig_stderr = sys.stderr
+sys.stdout = _Tee(_orig_stdout, _log_file)
+sys.stderr = _Tee(_orig_stderr, _log_file)
+atexit.register(_close_log)
+print(f"[run_pipeline] Logging full output to {_log_path}")
+
+with open(_root / 'config.yaml') as f:
     config = yaml.safe_load(f)
 
 # ── Auto-approve at human checkpoint ──────────────────────────────────────────
@@ -520,4 +574,6 @@ print(f'    persona_summary.txt   — full persona cards (notebook-04 format)')
 print(f'    persona_metrics.csv   — {len(csv_rows)} rows  ({len(personas_data)} clusters × 14 categories)')
 print(f'    personas.json         — machine-readable personas')
 print(f'    classifier_metrics.json — CV scores + feature importances')
+print(f'    pipeline_run_*.txt     — full terminal log from this run')
+print(f'    agents_conversation.txt — agent status messages + full LLM prompts/responses')
 print('█' * W)

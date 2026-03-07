@@ -192,8 +192,9 @@ def save_outputs(cluster_result, naming_result, classifier_result, bus: Orchestr
             }, f, indent=2)
         print('  Saved outputs/silhouette_curve.json')
 
-    # Save pipeline log
+    # Save pipeline log (JSON + human-readable .txt for agent conversations)
     bus.save_log('outputs/pipeline_log.json')
+    bus.save_log_txt('outputs/agents_conversation.txt')
 
 
 class Orchestrator:

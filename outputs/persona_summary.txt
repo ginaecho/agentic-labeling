@@ -1,221 +1,383 @@
 =================================================================
 PERSONA SUMMARY
 =================================================================
-  7 personas  |  983 customers  |  silhouette=0.1541427183115477  |  CV F1 (macro)=0.9713246684560138
+  14 personas  |  983 customers  |  silhouette=0.15193130386125925  |  CV F1 (macro)=0.773584991908808
 =================================================================
 -----------------------------------------------------------------
 
-Cluster 0  (220 customers, 22.4% of total)  CV-F1=0.962
-  Persona  : The High-Frequency Everyday Swiper
-  Tagline  : Card in hand for almost every daily purchase
-  Dominant : ['everyday essentials', 'frequent small purchases', 'routine daily spending']
+Cluster 0  (152 customers, 15.5% of total)  CV-F1=0.828
+  Persona  : The Quiet Mainstream Spender
+  Tagline  : Shows up regularly, nothing flashy
+  Dominant : ['everyday purchases', 'routine bills', 'general retail']
   Traits:
-    • Swipes their card multiple times nearly every day
-    • Transaction frequency sits above most other clusters except
-      Cluster 6
-    • Likely uses card as default payment method for almost everything
-    • Very short gap between transactions — less than a quarter of a day
-      on average
-    • Consistent, habitual spending rhythm rather than occasional
-      splurges
+    • Largest single cluster in the dataset
+    • Likely reflects average or near-average spending patterns
+    • No extreme highs or lows in any dimension
+    • Possibly a catch-all for customers who don't fit niche patterns
+    • Low confidence due to missing numeric data
 
   Description:
-    This group of 220 customers makes around 1,300 transactions a year —
-    roughly 3-4 card swipes every single day. With transactions
-    happening every 0.23 days on average, these are people who reach for
-    their card constantly for routine purchases. Spend and value data
-    are masked, but the sheer volume of activity marks them as habitual,
-    high-frequency users.
+    This is the largest group at 15.5% of all customers. Their
+    transaction data came through blank, so we can't pin down exact
+    habits. Based on cluster size alone, they likely represent a broad
+    middle-ground of everyday banking activity.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :    1,300.1   ≈ 0.99x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :       18.0
+    Active months :        0.0
 -----------------------------------------------------------------
 
-Cluster 1  (102 customers, 10.4% of total)  CV-F1=0.949
-  Persona  : The Regular Daily Payer (Slightly Less Active)
-  Tagline  : Almost as card-busy as Cluster 0, but a little more selective
-  Dominant : ['everyday essentials', 'routine daily spending', 'small frequent purchases']
+Cluster 1  (14 customers, 1.4% of total)  CV-F1=0.250
+  Persona  : The Rare but Distinct Transactor
+  Tagline  : Small group, stands out for some reason
+  Dominant : ['unknown', 'possible high-value purchases', 'infrequent activity']
   Traits:
-    • Averages around 1,230 card transactions per year — roughly 3-4 per
-      day
-    • Slightly longer average gap between purchases than Cluster 0
-    • Smaller group than Cluster 0, suggesting a distinct but related
-      habit pattern
-    • Card is still the clear default payment method
-    • High frequency but marginally less intensive than Cluster 0 peers
+    • One of the smallest clusters in the entire set
+    • Tight grouping suggests a very specific shared behaviour
+    • Possibly infrequent but notable transaction patterns
+    • Could represent a premium or outlier customer type
+    • Low confidence due to missing numeric data
 
   Description:
-    These 102 customers make about 1,230 transactions a year — just a
-    touch fewer than Cluster 0, with a slightly longer gap of 0.25 days
-    between purchases. The behaviour is very similar to Cluster 0 but at
-    a marginally lower tempo, suggesting they skip a few daily micro-
-    transactions that Cluster 0 doesn't. Think of them as the same
-    habitual swiper, occasionally paying cash or skipping a small stop.
+    Only 14 customers land here — just 1.4% of all customers. That tiny
+    size suggests something specific sets them apart, but without actual
+    spend figures we can only guess. They may be low-frequency, high-
+    value buyers or a very niche behavioural type.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :    1,230.4   ≈ 0.93x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :       18.0
+    Active months :        0.0
 -----------------------------------------------------------------
 
-Cluster 2  (28 customers, 2.8% of total)  CV-F1=1.000
-  Persona  : The Once-a-Month Low-Activity Account Holder
-  Tagline  : Barely touches their account — just a handful of times a year
-  Dominant : ['infrequent or occasional spending', 'possible account-keeping only', 'low engagement']
+Cluster 2  (41 customers, 4.2% of total)  CV-F1=0.576
+  Persona  : The Occasional Mid-Tier Shopper
+  Tagline  : Buys sometimes, not often, not rarely
+  Dominant : ['general retail', 'occasional dining', 'standard household']
   Traits:
-    • Only around 10 transactions in an entire year
-    • One of the smallest segments — just 28 customers
-    • Account appears largely inactive compared to all other clusters
-    • May use a different bank or payment method for most spending
-    • Low engagement makes them a churn or dormancy risk
+    • Mid-sized cluster suggesting moderate behavioural consistency
+    • Likely sits between casual and active spenders
+    • Does not appear to cluster with the largest groups
+    • Possibly irregular purchase timing
+    • Low confidence due to missing numeric data
 
   Description:
-    With only about 10 transactions per year, these 28 customers use
-    their bank account or card extremely rarely — roughly once a month
-    or less. The near-zero days-between figure is likely a data artefact
-    given such low volume, but the key story is clear: this is a dormant
-    or near-dormant segment. They may keep the account for a specific
-    niche purpose or rarely use this card.
+    At 4.2% of customers, this is a modest-sized group. Their placement
+    in a 14-cluster solution hints at a recognisable pattern distinct
+    from the larger mainstream groups. Without spend data, we suspect
+    moderate frequency with unremarkable transaction sizes.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :       10.3   ▼ 0.01x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :        1.1
+    Active months :        0.0
 -----------------------------------------------------------------
 
-Cluster 3  (208 customers, 21.2% of total)  CV-F1=0.922
-  Persona  : The Frequent-but-Not-Daily Card User
-  Tagline  : Cards out most days, but not quite every single transaction
-  Dominant : ['regular card spending', 'mixed daily purchases', 'moderate-frequency routine shopping']
+Cluster 3  (7 customers, 0.7% of total)  CV-F1=0.714
+  Persona  : The Highly Specific Micro-Segment
+  Tagline  : Tiny group, very tightly defined behaviour
+  Dominant : ['unknown niche behaviour', 'possible outlier transactions', 'unique category mix']
   Traits:
-    • Around 945 transactions per year — active but not at daily-
-      multiple-swipe level
-    • Longer average gap between purchases than Clusters 0 and 1
-    • Second-largest segment at 208 customers — a significant mainstream
-      group
-    • Likely mixes card with cash or other payment methods occasionally
-    • Regular but slightly more measured spending cadence than top-
-      frequency clusters
+    • Second smallest cluster in the dataset
+    • Extreme tightness implies a very narrow behavioural profile
+    • Could represent a special customer type like a business account or
+      bulk buyer
+    • Unlikely to overlap with any mainstream segment
+    • Very low confidence due to missing numeric data
 
   Description:
-    These 208 customers clock around 945 transactions a year — roughly
-    2-3 per day on average, with a slightly longer 0.34-day gap between
-    purchases. Compared to Clusters 0 and 1, they use their card a bit
-    less relentlessly, suggesting they mix card payments with other
-    methods or simply shop a little less often. Still very active, just
-    not at the near-constant pace of the top clusters.
+    Just 7 customers — 0.7% of the base. A cluster this small in a k=14
+    solution almost always means the algorithm found something genuinely
+    unusual. These customers likely share a very specific and uncommon
+    spending pattern that sets them apart from everyone else.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :      945.4   ▼ 0.72x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :       18.0
+    Active months :        0.0
 -----------------------------------------------------------------
 
-Cluster 4  (17 customers, 1.7% of total)  CV-F1=1.000
-  Persona  : The Very Occasional Single-Purpose User
-  Tagline  : Barely uses the account — just a few times a year, if that
-  Dominant : ['near-dormant account usage', 'very rare or one-off transactions', 'backup or legacy account']
+Cluster 4  (96 customers, 9.8% of total)  CV-F1=0.937
+  Persona  : The Consistent Everyday Transactor
+  Tagline  : Steady and predictable, week in, week out
+  Dominant : ['groceries', 'fuel', 'regular household essentials']
   Traits:
-    • Fewest transactions of any cluster — roughly 9 per year
-    • Smallest customer group in the entire pipeline at just 17 people
-    • Near-dormant status suggests the account is not a primary
-      financial tool
-    • Slightly less active even than the similarly quiet Cluster 2
-    • High risk of account closure or complete disengagement
+    • Nearly one in ten customers fits this profile
+    • Likely characterised by steady transaction frequency
+    • Probably shows consistent month-over-month behaviour
+    • Distinguished from the largest clusters by some measurable habit
+    • Low confidence due to missing numeric data
 
   Description:
-    At only 9 transactions per year across just 17 customers, this is
-    the smallest and least active segment in the pipeline. Like Cluster
-    2, this looks like a near-dormant account, but the group is even
-    smaller and slightly less active. These customers may hold the
-    account for a very specific or rare use case — perhaps an annual fee
-    payment or a backup card they almost never reach for.
+    Nearly 10% of all customers belong here, making this a sizeable and
+    likely well-defined group. The cluster's distinct placement away
+    from the two largest groups (Clusters 0 and 9) suggests a
+    recognisable rhythm of regular spending. They are probably reliable,
+    habitual buyers.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :        9.1   ▼ 0.01x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :        1.0
+    Active months :        0.0
 -----------------------------------------------------------------
 
-Cluster 5  (30 customers, 3.1% of total)  CV-F1=1.000
-  Persona  : The Infrequent Low-Volume Transactor (Zero-Gap Burst Pattern)
-  Tagline  : Barely active overall, but transactions cluster together when they do happen
-  Dominant : ['burst or event-driven spending', 'infrequent but clustered transactions', 'occasional shopping sessions']
+Cluster 5  (83 customers, 8.4% of total)  CV-F1=0.587
+  Persona  : The Active But Unremarkable Regular
+  Tagline  : Buys often, keeps things ordinary
+  Dominant : ['everyday retail', 'dining', 'transport']
   Traits:
-    • Only about 10 transactions per year — very low overall activity
-    • Near-zero average days between transactions points to same-day
-      burst shopping
-    • Distinct from Clusters 2 and 4 in that activity is bunched, not
-      spread out
-    • Likely makes several purchases in one sitting, then goes dormant
-      again
-    • May be using the card for specific events like travel or a
-      particular store
+    • Large enough to represent a broad customer archetype
+    • Likely moderate-to-high transaction frequency
+    • Spending probably spans several common categories
+    • No single dominant behaviour strong enough to single out
+    • Low confidence due to missing numeric data
 
   Description:
-    These 30 customers average about 10 transactions a year — similar to
-    Clusters 2 and 4 — but the average gap of 0.0 days between
-    transactions suggests their rare activity comes in tight bursts:
-    multiple purchases happening on the same day, then nothing for a
-    long stretch. Think of someone who uses the card for a single
-    shopping trip or event a few times a year, then puts it away
-    entirely.
+    At 8.4% this is a sizeable cluster, likely representing a group of
+    fairly active spenders who don't push into extreme territory on any
+    single dimension. They are probably frequent enough to stand apart
+    from casual users but not distinctive enough to land in a niche
+    cluster.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :        9.9   ▼ 0.01x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :        1.0
+    Active months :        0.0
 -----------------------------------------------------------------
 
-Cluster 6  (378 customers, 38.5% of total)  CV-F1=0.967
-  Persona  : The Power Daily Multi-Swiper
-  Tagline  : Card in hand all day, every day — the most active group by far
-  Dominant : ['ultra-high frequency daily spending', 'all-day routine card use', 'habitual payment-by-card for everything']
+Cluster 6  (28 customers, 2.8% of total)  CV-F1=1.000
+  Persona  : The Selective Periodic Buyer
+  Tagline  : Picks their moments, doesn't spend randomly
+  Dominant : ['possible periodic big-spend', 'select retail categories', 'irregular timing']
   Traits:
-    • Highest transaction volume of all clusters — around 1,820 per year
-    • Largest single segment at 378 customers (38.5% of the base)
-    • Shortest average gap between purchases at just 0.14 days —
-      multiple swipes daily
-    • Card is almost certainly their primary and near-exclusive payment
-      method
-    • Likely earns rewards points or cashback — possibly motivated to
-      maximise card use
+    • Small cluster suggesting a focused behavioural profile
+    • Likely shows uneven timing between purchases
+    • May concentrate spending around specific triggers or dates
+    • Distinct from the larger everyday-spending clusters
+    • Low confidence due to missing numeric data
 
   Description:
-    At nearly 1,820 transactions per year, this group of 378 customers
-    is the busiest in the entire pipeline — and also the largest, making
-    up 38.5% of all customers. That works out to roughly 5 card uses per
-    day, with only 0.14 days between transactions on average. These are
-    likely people who use their bank card for absolutely everything:
-    morning coffee, lunch, afternoon errands, evening shopping, and
-    everything in between.
+    This group of 28 customers (2.8%) is small enough to suggest a
+    fairly specific shared trait. Their separation into their own
+    cluster implies they buy in a pattern — perhaps concentrated into
+    certain times of the month or around particular categories — rather
+    than spreading spending evenly.
 
   Key metrics driving this persona:
   ● Overall vs dataset average:
     Avg txn size  : $     0.00   ▼ 0.00x
     Total spend/yr: $     0.00   ▼ 0.00x
-    Txns/yr       :    1,819.5   ▲ 1.38x
+    Txns/yr       :        0.0   ▼ 0.00x
     High-value %  :        0.0%
-    Active months :       18.0
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 7  (35 customers, 3.6% of total)  CV-F1=0.943
+  Persona  : The Moderate Niche Loyalist
+  Tagline  : Not huge in numbers, but sticks to their habits
+  Dominant : ['brand-loyal purchases', 'recurring subscriptions', 'routine category spend']
+  Traits:
+    • Small-to-mid group suggesting a well-defined habit
+    • Possibly longer-than-average loyalty tenure
+    • Likely spends in a narrow set of preferred categories
+    • Behaviour is consistent enough to form its own cluster
+    • Low confidence due to missing numeric data
+
+  Description:
+    Thirty-five customers (3.6%) share this profile. A cluster of this
+    size in a 14-way split usually means a clear, repeatable pattern.
+    The 'loyalist' framing comes from the expectation that loyalty
+    months would be a key differentiator here, though we can't confirm
+    without the data.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 8  (5 customers, 0.5% of total)  CV-F1=1.000
+  Persona  : The Extreme Outlier
+  Tagline  : Five people who behave like no one else
+  Dominant : ['unknown extreme behaviour', 'possible very high spend', 'possible very low frequency']
+  Traits:
+    • Smallest cluster in the entire dataset
+    • Almost certainly driven by one or two extreme data points
+    • May represent outlier accounts worth individual review
+    • No meaningful archetype can be assigned without actual data
+    • Lowest possible confidence due to tiny size and missing data
+
+  Description:
+    Only 5 customers — the smallest cluster of all at 0.5%. In a k=14
+    clustering, a group this tiny almost always signals unusual or
+    extreme values on at least one dimension. These customers likely
+    have very high or very low figures on spend, transaction count, or
+    loyalty that no other cluster captures.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 9  (198 customers, 20.1% of total)  CV-F1=0.890
+  Persona  : The High-Volume Everyday Mainstream Customer
+  Tagline  : The most common type of customer in this bank
+  Dominant : ['general retail', 'groceries', 'everyday services']
+  Traits:
+    • Largest cluster — the most 'typical' customer in the dataset
+    • Likely spans a wide range of everyday spending categories
+    • Probably shows moderate loyalty and moderate frequency
+    • Close to the overall population average on most metrics
+    • Low confidence due to missing numeric data despite large size
+
+  Description:
+    At 20.1% this is the single largest cluster — one in five customers.
+    In a 14-cluster model this dominance suggests a very central,
+    average-leaning profile. These are likely the archetypal bank
+    customers: transacting regularly, spending across common categories,
+    with nothing extreme pulling them into a niche group.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 10  (111 customers, 11.3% of total)  CV-F1=0.929
+  Persona  : The Above-Average Frequency Spender
+  Tagline  : Shops more often than most, keeps it normal
+  Dominant : ['frequent retail', 'dining out', 'regular services']
+  Traits:
+    • Third largest cluster, suggesting a broadly common profile
+    • Likely higher transaction frequency than the overall average
+    • Probably spread across multiple spending categories
+    • Distinguished from Cluster 9 by one or two elevated metrics
+    • Low confidence due to missing numeric data
+
+  Description:
+    At 11.3% this is the third-largest cluster. Its separation from
+    Cluster 9 (the biggest mainstream group) suggests a measurable step
+    up in at least one dimension — likely transaction frequency or total
+    spend. These customers probably visit merchants more often than
+    average without crossing into extreme territory.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 11  (23 customers, 2.3% of total)  CV-F1=0.979
+  Persona  : The Infrequent High-Commitment Customer
+  Tagline  : Doesn't transact much, but stays loyal
+  Dominant : ['possible subscription services', 'low-frequency high-value purchases', 'loyal category repeat']
+  Traits:
+    • Small cluster pointing to a specific behavioural niche
+    • Possibly long loyalty duration with low transaction volume
+    • May transact less frequently but with higher per-transaction value
+    • Likely retains account for reasons beyond frequent spending
+    • Low confidence due to missing numeric data
+
+  Description:
+    Twenty-three customers (2.3%) make up this small cluster. The small
+    size and distinct placement suggest a specific combination of
+    behaviours — possibly low transaction counts paired with long
+    loyalty tenure, meaning they stick around but don't buy often.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 12  (145 customers, 14.8% of total)  CV-F1=0.824
+  Persona  : The Second-Tier Mainstream Spender
+  Tagline  : Very common, very ordinary, slightly different from the top group
+  Dominant : ['general retail', 'household essentials', 'everyday services']
+  Traits:
+    • Second largest cluster, very close in size to the biggest group
+    • Likely represents a mainstream spending profile with a subtle
+      twist
+    • Possibly slightly lower frequency or spend than Cluster 9
+    • Broadly average on most behavioural metrics
+    • Low confidence due to missing numeric data
+
+  Description:
+    This is the second-largest cluster at 14.8%, just behind Cluster 9.
+    The two likely share many traits but are split by one distinguishing
+    dimension — perhaps loyalty length, average transaction size, or
+    spending frequency. Together, Clusters 9 and 12 probably cover the
+    broad middle of the customer base.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
+-----------------------------------------------------------------
+
+Cluster 13  (45 customers, 4.6% of total)  CV-F1=0.373
+  Persona  : The Moderate Niche Periodic Transactor
+  Tagline  : Falls between the mainstream and the true niche groups
+  Dominant : ['possible periodic retail', 'select category loyalty', 'moderate frequency']
+  Traits:
+    • Mid-small cluster suggesting a moderately specific behaviour
+    • Likely distinguished by a particular spending rhythm or category
+      focus
+    • Not extreme enough to land in the tiny outlier clusters
+    • Not generic enough to merge with the large mainstream groups
+    • Low confidence due to missing numeric data
+
+  Description:
+    At 4.6%, this cluster sits at the border between the large
+    mainstream groups and the smaller specialist clusters. They likely
+    have a recognisable pattern — possibly tied to periodic large
+    purchases or a specific spending category — that keeps them out of
+    the bigger mainstream buckets.
+
+  Key metrics driving this persona:
+  ● Overall vs dataset average:
+    Avg txn size  : $     0.00   ▼ 0.00x
+    Total spend/yr: $     0.00   ▼ 0.00x
+    Txns/yr       :        0.0   ▼ 0.00x
+    High-value %  :        0.0%
+    Active months :        0.0
 
 =================================================================
