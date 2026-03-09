@@ -19,27 +19,27 @@ Discovering personas from raw transactions is deceptively difficult. The bottlen
 The pipeline is driven by **`run_pipeline.py`**. Seven specialised agents plus an Orchestrator form a feedback loop. Every quality gate can push the pipeline backward; it only moves forward when all gates pass (or the user approves):
 
 ```
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                        ORCHESTRATOR                             │
-  │  (Python coordinator · Claude decision-maker · param tuner)     │
-  │                                                                 │
-  │  ⓪ UserInputAgent   — collects clustering intent (once)        │
-  │  ① DatasetExaminer  — profiles dataset, suggests feature groups │
-  │  ② FeatureEngineer  — builds ~232 behavioral features from CSV  │
-  │         │  (skipped if a pre-built parquet is supplied)         │
-  │         ▼                                                       │
-  │  ③ FeatureSelector  — PCA + AE + VIF gate → Claude picks subset │
-  │         │  ◄── Claude tunes VIF threshold, feature focus hint   │
-  │         ▼                                                       │
-  │  ④ Clusterer        — auto k-selection + algorithm + deepening  │
-  │         │  ◄── Claude tunes k_range, algorithm, min_silhouette  │
-  │         ▼                                                       │
-  │  ⑤ PersonaNamer     — Claude names clusters · Clarity Gate      │
-  │         ▼                                                       │
-  │  ⑥ Classifier       — Random Forest CV · F1 ≥ 0.70 gate        │
-  │         ▼                                                       │
-  │  ⑦ Human Checkpoint — approve / re-cluster / reselect / quit   │
-  └─────────────────────────────────────────────────────────────────┘
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │                        ORCHESTRATOR                                   │
+  │  (Python coordinator · Claude decision-maker · param tuner)           │
+  │                                                                       │
+  │  ⓪ UserInputAgent   — collects clustering intent (once)               │
+  │  ① DatasetExaminer  — profiles dataset, suggests feature groups       │
+  │  ② FeatureEngineer  — builds ~232 behavioral features from CSV        │
+  │         │  (skipped if a pre-built parquet is supplied)               │
+  │         ▼                                                             │
+  │  ③ FeatureSelector  — PCA + AE + VIF gate → orchestrator picks subset │
+  │         │  ◄── orchestrator tunes VIF threshold, feature focus hint   │
+  │         ▼                                                             │
+  │  ④ Clusterer        — auto k-selection + algorithm + deepening        │
+  │         │  ◄── orchestrator tunes k_range, algorithm, min_silhouette  │
+  │         ▼                                                             │
+  │  ⑤ PersonaNamer     — orchestrator names clusters · Clarity Gate      │
+  │         ▼                                                             │
+  │  ⑥ Classifier       — Random Forest CV · F1 ≥ 0.70 gate               │
+  │         ▼                                                             │
+  │  ⑦ Human Checkpoint — approve / re-cluster / reselect / quit          │
+  └───────────────────────────────────────────────────────────────────────┘
 ```
 
 ### What each agent does
