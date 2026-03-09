@@ -85,6 +85,26 @@ The console prints a `⚠ BEST-EFFORT RESULT` banner so the output is clearly fl
 
 ---
 
+## Data
+
+The pipeline operates on the [**Fraud Detection**](https://www.kaggle.com/datasets/kartik2112/fraud-detection) dataset by Kartik Shenoy on Kaggle (`kartik2112/fraud-detection`). It contains ~1.3 million simulated credit-card transactions for ~983 customers, with columns for merchant, category, amount, timestamp, and customer demographics.
+
+**Download** (requires a [Kaggle API token](https://www.kaggle.com/docs/api)):
+
+```bash
+pip install kaggle
+kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
+```
+
+This places two files in `data/raw/`:
+
+| File | Size | Description |
+|------|------|-------------|
+| `fraudTrain.csv` | ~335 MB | Training set — used by the pipeline for feature engineering and clustering |
+| `fraudTest.csv` | ~143 MB | Test set — held out for evaluation |
+
+---
+
 ## How to Run
 
 **Prerequisites**
@@ -99,7 +119,7 @@ echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
 
 ```bash
 python run_pipeline.py
-# UserInputAgent will prompt: enter the path to fraudTrain.csv
+# UserInputAgent will prompt: enter the path to data/raw/fraudTrain.csv
 # FeatureEngineerAgent builds the feature table automatically
 ```
 
