@@ -153,8 +153,8 @@ The pipeline uses `data/raw/fraudTrain.csv` (~335 MB) for feature engineering an
 
 ```bash
 pip install -r requirements.txt
-# Add your Anthropic API key
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
+# Add your LLM API key
+echo 'LLM_API_KEY=your-key-here' >> .env
 ```
 
 **Run from raw transaction CSV**
@@ -289,7 +289,7 @@ The dynamic tuning means the pipeline adapts to your specific dataset rather tha
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY="sk-ant-..."   # or add to .env
+export LLM_API_KEY="your-key-here"   # or add to .env
 python run_pipeline.py
 ```
 
