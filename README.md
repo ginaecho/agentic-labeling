@@ -20,29 +20,8 @@ The system described here automates the entire loop — feature engineering, sel
 
 The pipeline is driven by **`run_pipeline.py`**. Seven specialised agents plus a Decision Maker form a feedback loop. Every quality gate can push the pipeline backward; it only moves forward when all gates pass (or the user approves):
 
-```
-  ┌───────────────────────────────────────────────────────────────────────┐
-  │                       DECISION MAKER                                  │
-  │  (Python coordinator · LLM decision-maker · param tuner)              │
-  │                                                                       │
-  │  ⓪ UserInputAgent   — collects clustering intent (once)               │
-  │  ① DatasetExaminer  — profiles dataset, suggests feature groups       │
-  │  ② FeatureEngineer  — builds ~232 behavioral features from CSV        │
-  │         │  (skipped if a pre-built parquet is supplied)               │
-  │         ▼                                                             │
-  │  ③ FeatureSelector  — PCA + AE + VIF gate → Decision Maker picks subset │
-  │         │  ◄── Decision Maker tunes VIF threshold, feature focus hint  │
-  │         ▼                                                             │
-  │  ④ Clusterer        — auto k-selection + algorithm + deepening        │
-  │         │  ◄── Decision Maker tunes k_range, algorithm, min_silhouette│
-  │         ▼                                                             │
-  │  ⑤ PersonaNamer     — Decision Maker names clusters · Clarity Gate    │
-  │         ▼                                                             │
-  │  ⑥ Classifier       — Random Forest CV · F1 ≥ 0.70 gate               │
-  │         ▼                                                             │
-  │  ⑦ Human Checkpoint — approve / re-cluster / reselect / quit          │
-  └───────────────────────────────────────────────────────────────────────┘
-```
+<img width="1097" height="592" alt="image" src="https://github.com/user-attachments/assets/97aa473b-0055-452b-bb87-448cb1d701fb" />
+
 
 ### What each agent does
 
