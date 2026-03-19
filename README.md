@@ -79,70 +79,6 @@ Return ONLY a valid JSON object …
 The cluster statistics are computed at runtime from the actual feature matrix and injected into the prompt. The Decision Maker reads those numbers and returns structured JSON with `name`, `tagline`, `description`, `dominant_features`, `traits`, `confidence`.
 ---
 
-## How Feature Engineering Works
-
-`FeatureEngineerAgent` knows **8 generic statistical operations**, independent of any domain:
-
-| Builder | What it computes | Column naming pattern |
-|---------|-----------------|----------------------|
-| `group_aggregate` | count/sum/mean/std/max per group value × time window | `{metric}_{group_col}_{group_val}_{window}` |
-| `group_trend` | change in count or sum between two windows | `trend_count_{col}_{val}`, `trend_sum_{col}_{val}` |
-| `group_streak` | consecutive active periods per group value | `streak_{group_col}_{val}` |
-| `overall_aggregate` | count/sum/mean/std/max over all events | `{metric}_{value_col}_{window}` |
-| `frequency_recency` | event frequency, active periods, recency, gap | `event_count_{w}`, `days_since_last`, `avg_gap_days_{w}` |
-| `entity_diversity` | number of unique values per column | `n_unique_{col}_{window}` |
-| `temporal_patterns` | morning/evening/weekend ratios, peak hour | `pct_morning_{w}`, `pct_weekend_{w}`, `peak_hour_{w}` |
-| `static_attributes` | entity-level non-temporal columns copied as-is | original column name |
-
-The Decision Maker reads the actual schema (column names, types, sample values) and the business purpose, then plans which builders to apply to which columns — reasoning from the data, not from a hard-coded template. The same pipeline applies to transaction data, product catalogs, patient visits, sensor readings, or any other tabular event log.
-
----
-
-## Dynamic Algorithm Selection
-
-### Clustering algorithm
-
-`AlgoRecommenderSkill` scores five algorithms on each dataset and picks the best:
-
-| Algorithm | When chosen |
-|-----------|------------|
-| `kmeans` | Low skewness, large n, compact spherical clusters |
-| `hierarchical` | Moderate skewness, dendrogram structure useful |
-| `dbscan` | High outlier spread, irregular shapes, noise detection |
-| `gmm` | Soft boundaries, overlapping groups, probabilistic membership |
-| `fuzzy_cmeans` | Gradual transitions, partial membership useful |
-
-The Decision Maker can override the recommender's choice after each iteration based on observed silhouette scores.
-
-### Classifier
-
-`ClassifierAgent` asks the Decision Maker to select among:
-
-| Model | When chosen |
-|-------|------------|
-| `random_forest` | General default; robust to outliers and feature scale |
-| `xgboost` | Tabular data with complex interactions and many features |
-| `gradient_boosting` | Moderate datasets where accuracy is paramount |
-| `logistic_regression` | Linearly separable, small-to-medium datasets |
-
----
-
-## Dynamic Parameter Tuning
-
-After each failed iteration the Decision Maker sees a compact history of what happened — silhouette scores, VIF removals, k-curve, feature counts — and proposes improved parameters for the next round:
-
-| Parameter | Default | What the Decision Maker can change |
-|-----------|---------|----------------------|
-| `vif_threshold` | 10.0 | Raise to keep correlated-but-informative features (range 5–25) |
-| `algorithm` | auto | Switch among `kmeans` / `hierarchical` / `dbscan` / `gmm` / `fuzzy_cmeans` |
-| `k_range` | `[3,4,5,6,7,8,10,12,15]` | Narrow or widen the search range |
-| `min_silhouette` | 0.05 | Hard-block threshold; the Decision Maker may lower it for data that genuinely resists clustering (floor 0.02) |
-| `feature_focus` | *(empty)* | A short hint injected into the FeatureSelector prompt (e.g. "prioritise absolute magnitude over ratios") |
-
-Parameters are clamped to safe ranges before use. Each iteration prints the tuning decision and the Decision Maker's one-sentence reasoning.
-
----
-
 ## Best-Effort Fallback
 
 If 10 iterations complete without any result passing all gates, the pipeline does **not** just exit empty-handed. Instead it:
@@ -239,26 +175,6 @@ persona_tone: easy          # easy | professional | data-driven | creative
 
 **`clustering_algorithm: auto` is recommended.** The `AlgoRecommender` skill scores all five algorithms against data shape metrics (n_entities, n_features, skewness, outlier spread) and business purpose keywords, then picks the best fit. The Decision Maker can override after each iteration.
 
-### VIF threshold
-
-The VIF gate threshold is **not in `config.yaml`** — it is managed dynamically. It starts at `10.0` and the Decision Maker adjusts it each iteration based on how many features were removed and whether silhouette improved. You do not need to tune it manually.
-
----
-
-## Silhouette Score Interpretation
-
-Real-world ratio and frequency features typically produce lower silhouette scores than textbook examples. The pipeline's thresholds reflect this:
-
-| Silhouette | Interpretation | Pipeline action |
-|------------|---------------|----------------|
-| < 0.05 | Near-random — no useful structure | Hard block → reselect features |
-| 0.05 – 0.15 | Low but present (common with ratio/frequency features) | Warning, proceeds |
-| 0.15 – 0.25 | Weak but usable | Warning, proceeds |
-| 0.25 – 0.50 | Reasonable | Proceeds cleanly |
-| ≥ 0.50 | Strong | Proceeds cleanly |
-
-The exact hard-block threshold (`min_silhouette`) is adjusted dynamically by the Decision Maker between iterations.
-
 ---
 
 ## Outputs
@@ -290,21 +206,6 @@ The agents do not have hard-coded logic for every decision. They call shared **s
 | **VIF checker** | `skills/vif_checker.py` | FeatureSelector — multicollinearity gate |
 | **Silhouette optimizer** | `skills/silhouette_optimizer.py` | Clusterer — auto k-selection |
 | **Algorithm recommender** | `skills/algo_recommender.py` | Clusterer — scores 5 algorithms and recommends the best fit |
-
----
-
-## Key Metrics (Example Run — Credit-Card Transaction Demo)
-
-From a typical run on the demo dataset (~983 cardholders):
-
-| Metric | Value |
-|--------|--------|
-| **Personas** | 7–10 (including sub-clusters from deepening loop) |
-| **Entities** | ~983 |
-| **CV F1 (macro)** | 0.85 – 0.95 |
-| **Pipeline iterations** | 1–4 (with dynamic tuning) |
-
-Detailed per-cluster metrics are in **`outputs/persona_metrics.csv`**.
 
 ---
 
