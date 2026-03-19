@@ -44,7 +44,7 @@ Every agent follows the same four-step pattern:
 3. **Call** — send the prompt through `OrchestratorBus` to the LLM API (any chat-completion endpoint — Claude, GPT, Gemini, etc.).
 4. **Parse** — read the Decision Maker's JSON response and act on it.
 
-The agents are Python scripts that construct precise, data-rich prompts and parse structured responses. All LLM access of agents is mediated by the Orchestrator through `OrchestratorBus`.
+The agents are Python scripts that construct precise, data-rich prompts and parse structured responses. All LLM access of agents is mediated by the Orchestrator through `OrchestratorBus`. The cluster statistics are computed at runtime from the actual feature matrix and injected into the prompt. The Decision Maker reads those numbers and returns structured JSON with `name`, `tagline`, `description`, `dominant_features`, `traits`, `confidence`.
 
 **Concrete example — `PersonaNamingAgent`**
 
@@ -75,8 +75,6 @@ CRITICAL NAMING RULES — read carefully before writing any name:
 
 Return ONLY a valid JSON object …
 ```
-
-The cluster statistics are computed at runtime from the actual feature matrix and injected into the prompt. The Decision Maker reads those numbers and returns structured JSON with `name`, `tagline`, `description`, `dominant_features`, `traits`, `confidence`.
 ---
 
 ## Best-Effort Fallback
