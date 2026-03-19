@@ -44,7 +44,7 @@ Every agent follows the same four-step pattern:
 3. **Call** — send the prompt through `OrchestratorBus` to the LLM API (any chat-completion endpoint — Claude, GPT, Gemini, etc.).
 4. **Parse** — read the Decision Maker's JSON response and act on it.
 
-The agents are Python scripts that construct precise, data-rich prompts and parse structured responses. Agents never hold an LLM client — all LLM access is mediated by the Orchestrator through `OrchestratorBus`.
+The agents are Python scripts that construct precise, data-rich prompts and parse structured responses. All LLM access of agents is mediated by the Orchestrator through `OrchestratorBus`.
 
 **Concrete example — `PersonaNamingAgent`**
 
@@ -193,7 +193,7 @@ The pipeline uses `data/raw/fraudTrain.csv` (~335 MB) for feature engineering an
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY="sk-ant-..."   # or add to .env
+export LLM_API_KEY="sk-ant-..."   # or add to .env
 ```
 
 **Run from a raw event-level CSV**
