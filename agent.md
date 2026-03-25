@@ -82,6 +82,16 @@ This is the entry point of the pipeline.
   - `business_purpose: str` — why we are clustering
   - `dataset_path: str` — path to raw data file
   - `constraints: str` — optional free-text constraints
+  - `n_clusters_requested: int | None` — if set, ClusteringAgent uses this exact k (skips silhouette optimisation)
+  - `must_have_clusters: list[str]` — cluster labels that MUST appear in the final personas (e.g. `['traveller', 'VIP']`); enforced by PersonaNamingAgent Clarity Gate
+
+### Questions asked (interactive)
+1. "What entity are you clustering?" — `target_entity`
+2. "What is the business purpose?" — `business_purpose` (follow-up if < 20 chars)
+3. "Dataset path?" — `dataset_path`
+4. "Any constraints?" — `constraints`
+5. "How many clusters? (Enter = data-driven)" — `n_clusters_requested`
+6. "Must any specific types appear as clusters? (Enter = none)" — `must_have_clusters` (comma-separated)
 
 ### Communication protocol
 ```json
@@ -92,7 +102,10 @@ This is the entry point of the pipeline.
   "what_was_not_done": "",
   "doubts": "Business purpose may still be too vague",
   "issues": [],
-  "metrics": {},
+  "metrics": {
+    "n_clusters_requested": 5,
+    "must_have_clusters": ["traveller", "VIP"]
+  },
   "recommendation": "proceed"
 }
 ```
@@ -122,6 +135,14 @@ business purpose to get suggested feature groups.
 - `user_intent: UserIntent`
 - Raw DataFrame (loaded from `user_intent.dataset_path`)
 
+### README.md awareness
+If the dataset folder contains a `README.md` (e.g. `data/raw/air_quality/README.md`),
+the agent reads it automatically and includes its content in:
+1. The LLM prompt for feature group suggestions (so the LLM can use domain context from the data provider)
+2. `DatasetProfile.dataset_readme` — passed downstream to `FeatureEngineerAgent` and `FeatureSelectionAgent`
+
+The README text is capped at 3 000 chars to keep prompts manageable. If no README exists, the field is `""`.
+
 ### Outputs
 - `DatasetProfile` dataclass:
   - `n_rows: int`, `n_cols: int`
@@ -130,6 +151,7 @@ business purpose to get suggested feature groups.
   - `distribution_summary: dict[str, dict]` (skewness, kurtosis, min/max/mean)
   - `suggested_feature_groups: list[str]` (from LLM)
   - `warnings: list[str]`
+  - `dataset_readme: str` — full text of `README.md` from the dataset folder (empty string if absent)
 
 ### Communication protocol
 ```json
@@ -140,7 +162,7 @@ business purpose to get suggested feature groups.
   "what_was_not_done": "Did not load data subsets for validation",
   "doubts": "A high-cardinality column may need grouping before feature engineering",
   "issues": ["Column 'age' missing in 15% of rows"],
-  "metrics": { "n_rows": 10000, "n_cols": 25, "n_suggested_groups": 5 },
+  "metrics": { "n_rows": 10000, "n_cols": 25, "n_suggested_groups": 5, "has_readme": true },
   "recommendation": "proceed"
 }
 ```
@@ -360,10 +382,13 @@ based on dataset characteristics; picks the highest-scoring one:
 | `fuzzy_cmeans` | Overlapping clusters where entities belong to multiple groups |
 
 ### K selection logic
-Delegated to `skills.silhouette_optimizer`. Steps:
-1. Try k ∈ config `k_search_range` (default: [3,4,5,6,7,8,10,12,15])
-2. Fit model for each k; compute silhouette
-3. Pick k with maximum silhouette; report curve to orchestrator
+Priority order:
+1. **`user_intent.n_clusters_requested`** — if the user specified an exact count at Q5, use it directly (silhouette optimisation is skipped)
+2. **`config.n_clusters`** — if set in `config.yaml`, use it directly
+3. **Silhouette optimisation** (default) — delegated to `skills.silhouette_optimizer`:
+   - Try k ∈ `k_search_range` (default: [3,4,5,6,7,8,10,12,15])
+   - Fit model for each k; compute silhouette
+   - Pick k with maximum silhouette; report curve to orchestrator
 
 ### Communication protocol
 ```json
@@ -416,10 +441,17 @@ output quality before proceeding.
   - `avg_confidence: float`
   - `issues: list[str]`
 
+### Inputs
+- `profiles: dict` (from ClusteringAgent)
+- `lineage: dict`
+- `tone: str`
+- `user_intent: UserIntent` — used to inject `must_have_clusters` constraint into the LLM prompt and Clarity Gate
+- Orchestrator feedback
+
 ### Clarity Gate thresholds
-- Avg confidence ≥ 6/10
-- No duplicate persona names
-- Every persona description references ≥ 2 quantitative signals (checked by regex)
+1. Avg confidence ≥ 6/10
+2. No duplicate persona names
+3. **Must-have clusters covered** — if `user_intent.must_have_clusters` is non-empty, every required type must appear in at least one persona name or description. Failure triggers `recluster`.
 
 ### Communication protocol
 ```json

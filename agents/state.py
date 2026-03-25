@@ -16,6 +16,10 @@ class UserIntent:
     business_purpose: str      # why we are clustering
     dataset_path: str          # path to the feature parquet/CSV
     constraints: str = ""      # optional free-text constraints
+    n_clusters_requested: Optional[int] = None
+    """If the user specifies an exact cluster count, ClusteringAgent uses it directly."""
+    must_have_clusters: list = field(default_factory=list)
+    """Cluster attribute labels that must appear in the final result, e.g. ['traveller', 'VIP']."""
 
 
 @dataclass
@@ -31,6 +35,7 @@ class DatasetProfile:
     feature_group_reasoning: str
     warnings: list[str] = field(default_factory=list)
     algo_hint: str = ""        # 'hierarchical' | 'kmeans'
+    dataset_readme: str = ""   # contents of README.md in the dataset folder (if present)
 
 
 # ── Existing result dataclasses ────────────────────────────────────────────────

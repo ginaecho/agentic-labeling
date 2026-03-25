@@ -22,6 +22,7 @@ Sends cluster profiles to the LLM (via OrchestratorBus) to generate human-readab
   - `lineage: dict` — depth, parent, siblings
 - `lineage: dict`
 - `tone: str` — one of `easy | professional | data-driven | creative`
+- `user_intent: UserIntent` — used to extract `must_have_clusters` for the LLM prompt and Clarity Gate
 - Orchestrator feedback (free-text)
 
 ## Outputs
@@ -32,10 +33,18 @@ Sends cluster profiles to the LLM (via OrchestratorBus) to generate human-readab
   - `avg_confidence: float`
   - `issues: list[str]`
 
+## Must-have cluster constraint
+
+If `user_intent.must_have_clusters` is non-empty (e.g. `['traveller', 'VIP']`):
+1. A **MANDATORY CLUSTER REQUIREMENT** section is appended to the LLM prompt listing the required types
+2. The Clarity Gate checks that every required type appears (case-insensitive substring match, both hyphenated and space-separated variants) in at least one persona name or description
+3. Any missing required types are added to `issues` and trigger `action='recluster'`
+
 ## Clarity Gate thresholds
 
-- Avg LLM confidence ≥ 6/10
-- No duplicate persona names across all clusters
+1. Avg LLM confidence ≥ 6/10
+2. No duplicate persona names across all clusters
+3. All `must_have_clusters` types covered in persona names/descriptions (if any were specified)
 
 ## Communication protocol
 
@@ -49,7 +58,13 @@ Reports via [orchestrator_bus](../skills/orchestrator_bus.md):
   "what_was_not_done": "Did not validate description text references specific numbers",
   "doubts": "",
   "issues": [],
-  "metrics": { "n_clusters": 9, "avg_confidence": 7.2, "gate_passed": true, "names_unique": true },
+  "metrics": {
+    "n_clusters": 9,
+    "avg_confidence": 7.2,
+    "gate_passed": true,
+    "names_unique": true,
+    "must_have_clusters": ["traveller", "VIP"]
+  },
   "recommendation": "proceed"
 }
 ```
@@ -60,4 +75,5 @@ Reports via [orchestrator_bus](../skills/orchestrator_bus.md):
 |-------|--------|----------------|
 | Avg confidence < 6.0 | `warning` or `blocked` | `retry` — recluster |
 | Duplicate persona names | `blocked` | `retry` — recluster |
+| Must-have cluster type not found in any persona | `blocked` | `retry` — recluster |
 | LLM response not valid JSON | returns `recluster` action | Orchestrator retries |

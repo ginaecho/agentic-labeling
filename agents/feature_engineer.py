@@ -225,7 +225,16 @@ class FeatureEngineerAgent:
             max_date=max_date,
         )
 
-        # ── 4. Save ────────────────────────────────────────────────────────────
+        # ── 4. Deduplicate columns then save ───────────────────────────────────
+        # The LLM plan can reference the same category twice (e.g. 'grocery_net'
+        # appearing in multiple builder entries), producing identical column names.
+        # Keep only the first occurrence before writing to parquet.
+        n_before = len(customer_df.columns)
+        customer_df = customer_df.loc[:, ~customer_df.columns.duplicated()]
+        n_dropped = n_before - len(customer_df.columns)
+        if n_dropped:
+            print(f"  [FeatureEngineer] Dropped {n_dropped} duplicate column(s).")
+
         pathlib.Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         customer_df.to_parquet(output_path, index=True)
         print(f"\n  [FeatureEngineer] Saved {len(customer_df)} customers × "
@@ -335,12 +344,21 @@ class FeatureEngineerAgent:
 
         feedback_section = f"\nFeedback from previous round:\n{feedback}\n" if feedback else ""
 
+        readme_section = ""
+        if dataset_profile and getattr(dataset_profile, 'dataset_readme', ''):
+            readme_section = (
+                f"\nDATASET README (domain context from the data provider — use this to guide "
+                f"which features are meaningful):\n{'─'*60}\n"
+                f"{dataset_profile.dataset_readme}\n{'─'*60}\n"
+            )
+
         cats_str = cats if cats else "(no category column detected)"
         prompt = f"""You are a data scientist designing a feature engineering plan for a clustering project.
 
 BUSINESS PURPOSE: {user_intent.business_purpose}
 ENTITY TO CLUSTER: {user_intent.target_entity}
 {f"CONSTRAINTS: {user_intent.constraints}" if user_intent.constraints else ""}
+{readme_section}
 
 RAW DATA SCHEMA ({len(raw_df.columns)} columns):
   entity (grouping) column : {customer_col}

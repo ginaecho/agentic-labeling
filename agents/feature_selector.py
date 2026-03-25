@@ -82,6 +82,7 @@ class FeatureSelectionAgent:
         self,
         features_df,
         user_intent: UserIntent | None = None,
+        dataset_profile=None,
         feedback: str = '',
         iteration: int = 1,
         vif_threshold: float | None = None,
@@ -264,6 +265,11 @@ class FeatureSelectionAgent:
                 f"\nClustering intent:\n"
                 f"  Target: {user_intent.target_entity}\n"
                 f"  Purpose: {user_intent.business_purpose}\n"
+            )
+        if dataset_profile and getattr(dataset_profile, 'dataset_readme', ''):
+            intent_section += (
+                f"\nDataset README (domain context from the data provider):\n"
+                f"{'─'*60}\n{dataset_profile.dataset_readme}\n{'─'*60}\n"
             )
 
         high_corr_note = ""

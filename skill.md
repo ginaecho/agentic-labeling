@@ -230,6 +230,25 @@ reconstruction error. High error = feature is unique and hard to compress
 
 ---
 
+## `dataset_readme_context` — README.md Domain Context
+
+**File**: Implemented inline in `agents/dataset_examiner.py`
+**Used by**: `DatasetExaminerAgent` (reads), `FeatureEngineerAgent` (receives via `DatasetProfile`), `FeatureSelectionAgent` (receives via `DatasetProfile`)
+
+### Purpose
+If the dataset folder contains a `README.md` (e.g. `data/raw/air_quality/README.md`),
+`DatasetExaminerAgent` reads and stores it in `DatasetProfile.dataset_readme`.
+This text is injected into LLM prompts in DatasetExaminer (feature group suggestions),
+and should be passed on by FeatureEngineer and FeatureSelector when calling
+`bus.ask()` so the LLM has full domain context from the data provider.
+
+### Behaviour
+- File checked: `<dataset_file_directory>/README.md`
+- Capped at 3 000 chars (truncated with `...[README truncated]` if longer)
+- If no README exists, `dataset_readme = ""`; all downstream logic is unchanged
+
+---
+
 ## `feature_engineer_builders` — 8 Generic Feature Builders
 
 **File**: Implemented inline in `agents/feature_engineer.py`
@@ -239,6 +258,9 @@ reconstruction error. High error = feature is unique and hard to compress
 Builds entity-level features from raw event-level data using 8 generic
 statistical operations. The LLM chooses which builders to apply to which
 columns — no domain vocabulary is hard-coded.
+If `DatasetProfile.dataset_readme` is non-empty, it is injected into the
+LLM prompt so domain context from the data provider informs which builders
+and columns to prioritise.
 
 ### Builders
 
@@ -265,7 +287,15 @@ Feature column names embed the actual data column names, not domain abbreviation
 ### Checks
 1. `avg_confidence ≥ 6.0` — LLM's self-assessed naming confidence
 2. `all names unique` — no duplicate persona names across clusters
-3. `description references numbers` — at least 2 quantitative values per description
+3. **`must_have_clusters` covered** — if `user_intent.must_have_clusters` is non-empty,
+   every required type must appear (case-insensitive substring match) in at least one
+   persona name or description. Missing types are listed in `issues` and trigger `recluster`.
+
+### Must-have cluster matching
+The gate performs a case-insensitive substring match of each required type against the
+concatenated name + description of all personas. Both hyphenated and space-separated
+variants are tried (e.g. `"high-value"` also matches `"high value"`).
+If a required type is not found, the gate adds a descriptive issue to the failure report.
 
 ---
 

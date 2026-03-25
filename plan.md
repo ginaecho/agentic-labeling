@@ -14,14 +14,19 @@ to an orchestrator at every step.
 
 ### P1 — Intent First
 
-Before any computation, the pipeline collects two inputs from the user:
+Before any computation, the pipeline collects six inputs from the user:
 
 1. **Target entity**: what are we clustering? (e.g. customers, products, employees)
 2. **Business purpose**: why are we clustering?
    (e.g. "understand shopping behaviour to personalise offers")
+3. **Dataset path**: path to raw data file (defaults to config)
+4. **Constraints**: optional filters (e.g. "only last 12 months")
+5. **Cluster count**: exact number of clusters, or blank for data-driven selection
+6. **Must-have cluster types**: comma-separated labels that MUST appear as distinct personas
+   (e.g. "traveller, high-value-customer") — enforced by the PersonaNaming Clarity Gate
 
 All downstream agents shape their decisions — which features to build, which
-algorithm to select, what makes a "good" cluster — around these two inputs.
+algorithm to select, what makes a "good" cluster — around these inputs.
 The intent is stored in `UserIntent` and passed through every agent's context.
 
 ---
@@ -42,17 +47,19 @@ engineering if fewer than 10 features survive all gates.
 
 ---
 
-### P3 — Data-Driven Cluster Count
+### P3 — Cluster Count Selection
 
-The number of clusters `k` is NOT fixed by the user. The ClusteringAgent:
+The number of clusters `k` is resolved in priority order:
 
-1. Tries `k` from a configurable range (default: 3 – 15)
-2. Fits the chosen algorithm for each `k` and computes the silhouette score
-3. Selects the `k` that maximises silhouette
-4. Falls back to elbow-method if silhouette is flat across the range
+| Priority | Source | How |
+|----------|--------|-----|
+| 1 (highest) | User interactive input (Q5) | `user_intent.n_clusters_requested` — exact k, silhouette optimisation skipped |
+| 2 | `config.yaml` `n_clusters` | Fixed override in config |
+| 3 (default) | Data-driven silhouette | Try k ∈ [3,4,5,6,7,8,10,12,15]; pick highest silhouette |
 
-The user can override `k` via config, but the default is always data-driven.
-The chosen `k` and its silhouette score are reported to the orchestrator.
+The user can request an exact count at startup. When they do, the ClusteringAgent
+uses it directly and skips the silhouette search.
+The chosen `k` and its silhouette score are always reported to the orchestrator.
 
 ---
 
@@ -184,15 +191,17 @@ Clusterer → PersonaNamer → Classifier → Human
 | | |
 |---|---|
 | **Inputs** | None (interactive prompts) |
-| **Outputs** | `UserIntent` (target_entity, business_purpose, dataset_path, constraints) |
+| **Outputs** | `UserIntent` (target_entity, business_purpose, dataset_path, constraints, n_clusters_requested, must_have_clusters) |
 | **Skills** | `collect_intent`, `validate_intent` |
 | **Reports** | Always — confirms captured intent or flags ambiguity |
 
 Questions asked:
 1. "What entity are you clustering?" (customers / products / employees / other)
-2. "What is the business purpose of this clustering?"
+2. "What is the business purpose of this clustering?" (follow-up if < 20 chars)
 3. "Where is your dataset?" (file path or uses default)
 4. "Any constraints?" (e.g. "ignore outlier events", "only last 12 months")
+5. "How many clusters? (Enter = data-driven)" → sets `n_clusters_requested`
+6. "Must any specific types appear as clusters?" (comma-separated, e.g. "traveller, VIP") → sets `must_have_clusters`
 
 The agent validates that the answers are specific enough. If the business purpose
 is vague, it asks a follow-up clarifying question before proceeding.
@@ -204,16 +213,22 @@ is vague, it asks a follow-up clarifying question before proceeding.
 | | |
 |---|---|
 | **Inputs** | `UserIntent`, raw dataset path |
-| **Outputs** | `DatasetProfile` (schema, distributions, missing rates, suggested feature groups) |
+| **Outputs** | `DatasetProfile` (schema, distributions, missing rates, suggested feature groups, `dataset_readme`) |
 | **Skills** | `profile_schema`, `analyse_distributions`, `suggest_feature_groups` |
 | **Orchestrator status** | SUCCESS / WARNING / BLOCKED |
 
 The agent:
-1. Loads the dataset and profiles column types, missing rates, cardinality
-2. Analyses distribution shape (skewed, multi-modal, sparse)
-3. Calls LLM with the schema + business purpose → LLM suggests which
+1. **Checks for `README.md`** in the dataset's folder (e.g. `data/raw/air_quality/README.md`).
+   If found, its content (capped at 3 000 chars) is stored in `DatasetProfile.dataset_readme`
+   and injected into the LLM prompt as domain context from the data provider.
+2. Loads the dataset and profiles column types, missing rates, cardinality
+3. Analyses distribution shape (skewed, multi-modal, sparse)
+4. Calls LLM with the schema + business purpose + README context → LLM suggests which
    column groups to use for feature engineering
-4. Reports findings to orchestrator
+5. Reports findings to orchestrator
+
+The `dataset_readme` field in `DatasetProfile` flows through to `FeatureEngineerAgent`
+and `FeatureSelectionAgent`, giving both agents the same domain context.
 
 Failure modes:
 - WARNING: high missing rate (> 30 %) in key columns → recommend imputation
@@ -270,7 +285,7 @@ LLM prompt in the next iteration.
 
 | | |
 |---|---|
-| **Inputs** | Selected features, `UserIntent`, orchestrator feedback |
+| **Inputs** | Selected features, `UserIntent` (incl. `n_clusters_requested`), orchestrator feedback |
 | **Outputs** | Cluster labels, profiles, lineage, silhouette scores |
 | **Skills** | `recommend_algorithm`, `optimize_k_silhouette`, `cluster`, `deepen_oversized` |
 | **Quality gates** | Silhouette ≥ 0.25; no cluster > 40 % |
@@ -281,10 +296,10 @@ Algorithm selection (`recommend_algorithm` skill):
 - Supported: `kmeans`, `hierarchical`, `dbscan`, `gmm`, `fuzzy_cmeans`
 - Reasoning is included in the orchestrator report
 
-K selection (`optimize_k_silhouette` skill):
-- Tries k ∈ {3, 4, 5, 6, 7, 8, 10, 12, 15} by default
-- Computes silhouette for each; picks the maximum
-- Reports the full silhouette curve to orchestrator
+K selection (priority order):
+1. **`user_intent.n_clusters_requested`** — if set by user at Q5, used directly; silhouette optimisation is skipped
+2. **`config.n_clusters`** — if set in config, used directly
+3. **`optimize_k_silhouette` skill** (default) — tries k ∈ {3, 4, 5, 6, 7, 8, 10, 12, 15}; picks maximum silhouette; reports full silhouette curve to orchestrator
 
 Deepening loop:
 - Any cluster > 40 % is sub-clustered in-place
@@ -296,15 +311,20 @@ Deepening loop:
 
 | | |
 |---|---|
-| **Inputs** | Cluster profiles, lineage, tone setting |
+| **Inputs** | Cluster profiles, lineage, tone setting, `UserIntent` (incl. `must_have_clusters`) |
 | **Outputs** | Persona dict (name, tagline, description, traits, confidence) |
 | **Skills** | `build_cluster_prompt`, `call_llm_naming`, `clarity_gate` |
-| **Quality gates** | Avg confidence ≥ 6/10; no duplicate names |
+| **Quality gates** | Avg confidence ≥ 6/10; no duplicate names; all must-have cluster types covered |
 | **Orchestrator status** | SUCCESS / WARNING / BLOCKED |
 
+**Must-have cluster constraint**: if `user_intent.must_have_clusters` is non-empty,
+the LLM prompt contains a MANDATORY section listing the required types. The Clarity Gate
+then checks that every required type appears in at least one persona name or description.
+If any required type is missing, the gate fails and the pipeline re-clusters.
+
 If gate fails: report to orchestrator with specific issues (which clusters
-have low confidence, what makes them ambiguous). Orchestrator routes back
-to clustering with targeted feedback.
+have low confidence, what makes them ambiguous, which required types are missing).
+Orchestrator routes back to clustering with targeted feedback.
 
 ---
 

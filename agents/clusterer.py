@@ -280,10 +280,19 @@ class ClusteringAgent:
             print(f'  Algorithm auto-selected: {algorithm}  (confidence={rec.confidence:.2f})')
 
         # ── Step 3: K selection ───────────────────────────────────────────────
+        # Priority: user_intent.n_clusters_requested > config.n_clusters > silhouette auto-select
         n_clusters_override = cfg.get('n_clusters', None)
+        n_clusters_user = (
+            user_intent.n_clusters_requested
+            if user_intent and getattr(user_intent, 'n_clusters_requested', None)
+            else None
+        )
         k_scores: dict[int, float] = {}
 
-        if n_clusters_override and isinstance(n_clusters_override, int) and n_clusters_override > 0:
+        if n_clusters_user and isinstance(n_clusters_user, int) and n_clusters_user >= 2:
+            n_clusters = n_clusters_user
+            print(f'  k: {n_clusters} (requested by user — skipping silhouette optimisation)')
+        elif n_clusters_override and isinstance(n_clusters_override, int) and n_clusters_override > 0:
             n_clusters = n_clusters_override
             print(f'  k: {n_clusters} (from config)')
         else:

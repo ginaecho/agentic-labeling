@@ -544,6 +544,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 fs = self.feature_agent.run(
                     features_df,
                     user_intent=state.user_intent,
+                    dataset_profile=state.dataset_profile,
                     feedback=_fs_feedback,
                     iteration=iteration,
                     vif_threshold=state.tuning_params.get('vif_threshold'),
@@ -613,6 +614,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 tone=self.config.get('persona_tone', 'easy'),
                 feedback=state.naming_feedback,
                 iteration=iteration,
+                user_intent=state.user_intent,
             )
             self._timings['PersonaNamer'].append(time.perf_counter() - _t0)
             state.naming_history.append(nr)
@@ -773,6 +775,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 profiles=best_cr.profiles,
                 lineage=best_cr.lineage,
                 tone=self.config.get('persona_tone', 'easy'),
+                user_intent=state.user_intent,
                 feedback='Best-effort fallback: deliver the best personas available.',
                 iteration=state.total_iterations + 1,
                 force_proceed=True,

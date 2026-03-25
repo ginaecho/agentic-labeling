@@ -57,7 +57,15 @@ Delegated to [algo_recommender](../skills/algo_recommender.md). Supports: `kmean
 
 ## K selection
 
-Delegated to [silhouette_optimizer](../skills/silhouette_optimizer.md). Tries k in the configured range; picks k with maximum silhouette. Not applicable to DBSCAN (uses eps/min_samples instead).
+Priority order:
+
+| Priority | Source | Behaviour |
+|----------|--------|-----------|
+| 1 (highest) | `user_intent.n_clusters_requested` | Used directly; silhouette optimisation is **skipped** |
+| 2 | `config.yaml` `n_clusters` | Used directly |
+| 3 (default) | [silhouette_optimizer](../skills/silhouette_optimizer.md) | Tries k in the configured range; picks k with maximum silhouette |
+
+Not applicable to DBSCAN (auto-determines cluster count via eps/min_samples).
 
 ## Log-transform
 

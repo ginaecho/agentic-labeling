@@ -56,6 +56,11 @@ class DatasetProfile:
     algo_hint: str = ""
     """Optional algorithm hint based on distribution shape."""
 
+    dataset_readme: str = ""
+    """Full text of README.md found in the dataset's folder, if present.
+    Passed downstream to FeatureEngineerAgent and FeatureSelectionAgent
+    so the LLM can use domain context from the data provider."""
+
 
 class DatasetExaminerAgent:
     """
@@ -122,6 +127,21 @@ class DatasetExaminerAgent:
                     what_done="Attempted to load dataset",
                 )
                 return None
+
+        # ── Check for README.md in the dataset folder ──────────────────────────
+        dataset_readme = ""
+        readme_path = Path(user_intent.dataset_path).parent / "README.md"
+        if readme_path.exists():
+            try:
+                dataset_readme = readme_path.read_text(encoding="utf-8").strip()
+                # Cap at 3000 chars to keep LLM prompts manageable
+                if len(dataset_readme) > 3000:
+                    dataset_readme = dataset_readme[:3000] + "\n...[README truncated]"
+                print(f"  README.md found in dataset folder ({len(dataset_readme)} chars) — will be used for context.")
+            except Exception as e:
+                print(f"  [DatasetExaminer] Could not read README.md: {e}")
+        else:
+            print("  No README.md found in dataset folder.")
 
         n_rows, n_cols = df.shape
         print(f"  Shape: {n_rows:,} rows × {n_cols} columns")
@@ -206,11 +226,17 @@ class DatasetExaminerAgent:
         # DatasetExaminer does its own profiling (schema, distributions, skewness).
         # It asks the Orchestrator for LLM reasoning only to interpret the schema
         # in the context of the business purpose and suggest feature groups.
+        readme_section = (
+            f"\nDataset README (from the data provider — use this as domain context):\n"
+            f"{'─'*60}\n{dataset_readme}\n{'─'*60}\n"
+            if dataset_readme else ""
+        )
+
         prompt = f"""You are a data scientist examining a dataset that will be clustered by '{user_intent.target_entity}'.
 
 Business purpose: {user_intent.business_purpose}
 {f"Constraints: {user_intent.constraints}" if user_intent.constraints else ""}
-
+{readme_section}
 Dataset shape: {n_rows:,} rows × {n_cols} columns ({len(numeric_cols)} numeric)
 Mean feature skewness: {mean_skew:.2f}
 
@@ -220,7 +246,7 @@ Schema (first {n_schema_cols} columns):
 High-missing columns (>30%): {high_missing if high_missing else "none"}
 High-cardinality columns (>100 unique values): {high_card if high_card else "none"}
 
-Based on the schema and business purpose, suggest which GROUPS of features should be engineered.
+Based on the schema, business purpose, and any README context, suggest which GROUPS of features should be engineered.
 For each group, briefly explain what behavioral dimension it captures and which columns to derive it from.
 
 Return ONLY a valid JSON object (no markdown, no extra text):
@@ -306,6 +332,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
             feature_group_reasoning=reasoning,
             warnings=warnings,
             algo_hint=algo_hint,
+            dataset_readme=dataset_readme,
         )
 
         # ── Report to orchestrator ─────────────────────────────────────────────
@@ -341,6 +368,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                 "suggested_feature_groups": suggested_groups,
                 "group_details": llm_result.get("group_details", {}),
                 "algo_preference": algo_hint,
+                "has_readme": bool(dataset_readme),
             },
         ))
 

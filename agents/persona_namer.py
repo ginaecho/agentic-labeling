@@ -202,6 +202,7 @@ class PersonaNamingAgent:
         feedback: str = '',
         iteration: int = 1,
         force_proceed: bool = False,
+        user_intent=None,
     ) -> NamingResult:
         """
         Parameters
@@ -224,10 +225,31 @@ class PersonaNamingAgent:
         if feedback:
             tone_instr += f'\n\nAdditional guidance: {feedback}'
 
+        # Collect must-have cluster constraints from user_intent
+        must_have = []
+        if user_intent and getattr(user_intent, 'must_have_clusters', None):
+            must_have = list(user_intent.must_have_clusters)
+
         n_leaf = len(profiles)
         print(f'  Prepared cluster prompt for {n_leaf} clusters — asking Orchestrator for naming...')
+        if must_have:
+            print(f'  Must-have cluster types: {must_have}')
 
         prompt = build_all_clusters_prompt(profiles, lineage, tone_instr)
+
+        # Append must-have constraint to prompt if set
+        if must_have:
+            must_have_str = ', '.join(f'"{t}"' for t in must_have)
+            prompt += f"""
+
+MANDATORY CLUSTER REQUIREMENT:
+The user has specified that the following cluster type(s) MUST be represented in your output:
+  {must_have_str}
+
+For each required type, at least one cluster name or its description must clearly capture that concept.
+If none of the clusters naturally fit a required type, assign it to the closest matching cluster
+and note in the description why this cluster represents that type.
+Do NOT omit any required cluster type from the output."""
 
         # PersonaNamingAgent has built the full cluster data table itself.
         # It asks the Orchestrator for LLM reasoning to name and describe each cluster.
@@ -278,6 +300,24 @@ class PersonaNamingAgent:
             issues.append(f'Avg LLM confidence {avg_conf:.1f} < 6.0')
         if not names_unique:
             issues.append('Duplicate persona names detected')
+
+        # Check that every must-have cluster type is covered
+        if must_have:
+            all_text = ' '.join(
+                (p.get('name', '') + ' ' + p.get('description', '')).lower()
+                for p in personas.values()
+            )
+            missing_types = [
+                t for t in must_have
+                if t.lower().replace('-', ' ') not in all_text
+                and t.lower().replace(' ', '-') not in all_text
+                and t.lower() not in all_text
+            ]
+            if missing_types:
+                issues.append(
+                    f'Must-have cluster type(s) not found in any persona name/description: '
+                    f'{missing_types}'
+                )
 
         passed = len(issues) == 0
         if force_proceed and not passed:
@@ -331,6 +371,7 @@ class PersonaNamingAgent:
                     "avg_confidence": round(avg_conf, 2),
                     "gate_passed": passed,
                     "names_unique": names_unique,
+                    "must_have_clusters": must_have,
                 },
                 recommendation="proceed" if passed else "retry",
                 context={
