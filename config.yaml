@@ -2,6 +2,13 @@
 # Edit this file to customize the persona generation pipeline.
 # After changes, re-run notebooks in order: 03 → 04 → 05
 
+# ── Dataset ────────────────────────────────────────────────────────────────────
+
+# Path to the input CSV (or parquet) file for feature engineering.
+# Leave empty/null to use the default: data/raw/fraudTrain.csv
+# Can also be overridden at runtime with: python run_pipeline.py --data <path>
+dataset_path: ~
+
 # ── Clustering ────────────────────────────────────────────────────────────────
 
 # Number of customer segments to create.

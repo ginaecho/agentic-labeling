@@ -105,15 +105,25 @@ def _auto_approve(personas, cr, clf, bus):
     return HumanDecision(action='approve')
 _orch_mod.human_checkpoint = _auto_approve
 
-# ── Resolve default features path ─────────────────────────────────────────────
-# Always run feature engineering from the raw CSV so the pipeline produces a
-# fresh engineered_features.parquet every run.  This guarantees that cluster
-# profile metrics (top_above_average, feature_means, …) are populated from a
-# properly built feature matrix rather than a notebook-generated parquet whose
-# column names may differ from what the Clusterer's _extract_profiles expects.
+# ── Resolve features path ──────────────────────────────────────────────────────
+# Priority: CLI argument > config.yaml dataset_path > default raw CSV > parquet
+import argparse
+_parser = argparse.ArgumentParser(add_help=False)
+_parser.add_argument('--data', type=str, default=None,
+                     help='Path to input CSV/parquet (overrides config.yaml)')
+_args, _ = _parser.parse_known_args()
+
+_config_data_path = config.get('dataset_path')
 _raw_csv = pathlib.Path('data/raw/fraudTrain.csv')
-_parquet  = pathlib.Path('data/processed/customer_features.parquet')
-if _raw_csv.exists():
+_parquet = pathlib.Path('data/processed/customer_features.parquet')
+
+if _args.data:
+    _default_features_path = _args.data
+    print(f'[run_pipeline] Using CLI-specified data: {_args.data}')
+elif _config_data_path:
+    _default_features_path = _config_data_path
+    print(f'[run_pipeline] Using config.yaml dataset_path: {_config_data_path}')
+elif _raw_csv.exists():
     _default_features_path = str(_raw_csv)
     print(f'[run_pipeline] Using raw CSV for fresh feature engineering: {_raw_csv}')
 elif _parquet.exists():
