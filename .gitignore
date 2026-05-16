@@ -28,6 +28,7 @@ __pycache__/
 *.docx
 *.zip
 *.jpg
+*.png
 *.html
 !ui/templates/*.html
 ~$*
