@@ -16,7 +16,7 @@
       <div class="subtitle">Fine-tune named clusters · feed changes back to the agent system</div>
     </div>
   </div>
-  <div class="summary" id="summary">loading…</div>
+  <div class="summary" id="summary"></div>
   <div class="actions">
     <button id="merge-btn" class="ghost" disabled>Merge selected (0)</button>
     <button id="global-rule-btn" class="ghost">+ Global rule</button>
@@ -24,7 +24,198 @@
   </div>
 </header>
 
+<nav class="view-tabs" id="view-tabs">
+  <button class="view-tab on" data-view="live">Live pipeline</button>
+  <button class="view-tab" data-view="evidence">Data &amp; evidence</button>
+  <button class="view-tab" data-view="clusters">Named clusters <span id="tab-cluster-count" class="muted"></span></button>
+</nav>
+
 <main>
+  <section id="evidence-view" class="evidence-view hidden">
+    <div class="evidence-grid" id="evidence-grid"></div>
+  </section>
+  <section id="live-pipeline" class="live-panel hidden">
+    <header class="live-head">
+      <div>
+        <h2 id="live-title">Agentic Labelling Agents</h2>
+      </div>
+      <div class="live-status">
+        <div class="mode-toggle" id="mode-toggle" title="Bypass = agents auto-proceed past warnings · Interactive = pipeline pauses for your decision">
+          <button class="mode-btn" data-mode="bypass">Bypass</button>
+          <button class="mode-btn" data-mode="interactive">Interactive</button>
+        </div>
+        <span id="live-iteration" class="pill">iteration —</span>
+        <span id="live-dot" class="dot"></span>
+      </div>
+    </header>
+
+    <!-- Two-column workspace: live view (M) + agent outputs (R) -->
+    <div class="three-col-wrap">
+
+    <div class="col-mid">
+    <!-- Architecture graph: orchestrator at center, agents around it -->
+    <div id="arch-graph-wrap" class="arch-wrap">
+      <svg id="arch-graph" viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="arch-legend">
+        <span><span class="dot success"></span> done</span>
+        <span><span class="dot running"></span> active</span>
+        <span><span class="dot warning"></span> warning</span>
+        <span><span class="dot"></span> pending</span>
+      </div>
+    </div>
+
+    <!-- Tokens & cost — sits directly below the graph, updates live.
+         Two ledgers: PIPELINE drives the decisions; EVIDENCE is presentation-
+         only (explanations / visualization choices) and is billed separately. -->
+    <h3 class="section-h">Tokens &amp; cost <span class="muted">(updates on every LLM call · two ledgers)</span></h3>
+    <div id="cost-panel" class="cost-panel">
+      <div class="cost-totals-grid three">
+        <div class="cost-total">
+          <div class="cost-total-label"><span class="cat-dot pipeline"></span> Pipeline (drives decisions)</div>
+          <div class="cost-total-value"><span id="cost-total-tokens">0</span> tokens · <b id="cost-total-usd">$0.0000</b></div>
+        </div>
+        <div class="cost-total">
+          <div class="cost-total-label"><span class="cat-dot evidence"></span> Evidence (explanations only)</div>
+          <div class="cost-total-value"><span id="cost-evidence-tokens">0</span> tokens · <b id="cost-evidence-usd">$0.0000</b></div>
+        </div>
+        <div class="cost-total">
+          <div class="cost-total-label"><span class="cat-dot naming"></span> Naming discussions (per cluster chat)</div>
+          <div class="cost-total-value"><span id="cost-naming-tokens">0</span> tokens · <b id="cost-naming-usd">$0.0000</b></div>
+        </div>
+      </div>
+      <details class="cost-section" open>
+        <summary>Pipeline calls — per agent</summary>
+        <table class="cost-table">
+          <thead><tr><th>Requested by</th><th>Calls</th><th>In</th><th>Out</th><th>Time</th><th>Cost</th></tr></thead>
+          <tbody id="cost-tbody">
+            <tr class="empty"><td colspan="6" class="muted">No pipeline LLM calls yet.</td></tr>
+          </tbody>
+        </table>
+      </details>
+      <details class="cost-section">
+        <summary>Evidence calls — per source</summary>
+        <table class="cost-table">
+          <thead><tr><th>Requested by</th><th>Calls</th><th>In</th><th>Out</th><th>Time</th><th>Cost</th></tr></thead>
+          <tbody id="cost-evidence-tbody">
+            <tr class="empty"><td colspan="6" class="muted">No evidence LLM calls yet. Click "Explain this warning" on any warning in the Evidence tab.</td></tr>
+          </tbody>
+        </table>
+      </details>
+      <details class="cost-section">
+        <summary>Naming discussions — per cluster chat</summary>
+        <table class="cost-table">
+          <thead><tr><th>Cluster chat</th><th>Calls</th><th>In</th><th>Out</th><th>Time</th><th>Cost</th></tr></thead>
+          <tbody id="cost-naming-tbody">
+            <tr class="empty"><td colspan="6" class="muted">No naming chats yet. Open any cluster card and click "Discuss with agent".</td></tr>
+          </tbody>
+        </table>
+      </details>
+      <div class="cost-foot muted">
+        All calls go through the <b>Decision Maker</b>. Rows attribute spend to the asker. Sonnet-tier pricing (~$3/M in · ~$15/M out).
+      </div>
+    </div>
+
+    <!-- Intent capture form: visible when awaiting_intent + no UserInput report -->
+    <div id="intent-form-wrap" class="intent-card hidden">
+      <h3>Tell the pipeline what to cluster</h3>
+      <p class="muted">
+        Fill this in and the pipeline will start. Required fields are marked *.
+      </p>
+      <div class="intent-grid">
+        <div class="span2">
+          <div class="field-head">
+            Dataset *<span class="muted"> — start here; drop a file or paste a server path</span>
+          </div>
+          <div id="drop-zone" class="drop-zone">
+            <input id="intent-file" type="file" accept=".csv,.tsv,.parquet" hidden/>
+            <div class="dz-empty" id="dz-empty">
+              <div class="dz-icon">⬆</div>
+              <div class="dz-title">Drop a CSV or parquet file here</div>
+              <div class="dz-sub">or <button type="button" class="link" id="dz-browse">browse from your computer</button></div>
+              <div class="dz-or">or paste a server path</div>
+              <input id="intent-dataset" type="text" class="dz-path" placeholder="data/processed/engineered_features.parquet"/>
+            </div>
+            <div class="dz-filled hidden" id="dz-filled">
+              <div class="dz-file-name" id="dz-file-name">—</div>
+              <div class="dz-file-meta" id="dz-file-meta">—</div>
+              <button type="button" class="link danger" id="dz-clear">remove</button>
+            </div>
+            <div class="dz-progress hidden" id="dz-progress">
+              <div class="dz-progress-bar"><span id="dz-progress-fill"></span></div>
+              <div class="dz-progress-label" id="dz-progress-label">Uploading…</div>
+            </div>
+          </div>
+          <div id="dz-preview" class="dz-preview hidden">
+            <div class="dz-preview-head">
+              <span class="muted">Preview:</span>
+              <span id="dz-preview-shape"></span>
+            </div>
+            <div class="dz-preview-table-wrap">
+              <table class="dz-preview-table" id="dz-preview-table"></table>
+            </div>
+          </div>
+        </div>
+        <label>
+          <span class="lbl-head">Target entity *</span>
+          <input id="intent-target" type="text" placeholder="what are you clustering?"/>
+        </label>
+        <label>
+          <span class="lbl-head">How many clusters? <span class="muted">(blank = auto)</span></span>
+          <input id="intent-k" type="number" min="2" max="30" placeholder=""/>
+        </label>
+        <label class="span2">
+          <span class="lbl-head">Business purpose *</span>
+          <textarea id="intent-purpose" rows="2" placeholder=""></textarea>
+        </label>
+        <label class="span2">
+          <span class="lbl-head">Constraints <span class="muted">(optional)</span></span>
+          <input id="intent-constraints" type="text" placeholder=""/>
+        </label>
+        <label class="span2">
+          <span class="lbl-head">Must-have cluster types <span class="muted">(comma-separated, optional)</span></span>
+          <input id="intent-musthave" type="text" placeholder=""/>
+        </label>
+      </div>
+      <div class="intent-actions">
+        <button class="primary" id="intent-submit">Start pipeline</button>
+      </div>
+    </div>
+
+    <div id="active-spotlight" class="spotlight hidden">
+      <div class="spot-left">
+        <div class="spot-pulse"></div>
+        <div class="spot-num" id="spot-num">—</div>
+      </div>
+      <div class="spot-body">
+        <div class="spot-tag">NOW ACTIVE</div>
+        <div class="spot-name" id="spot-name">—</div>
+        <div class="spot-detail" id="spot-detail">starting…</div>
+        <div class="spot-gates" id="spot-gates"></div>
+      </div>
+    </div>
+
+    <h3 class="section-h">Agent log <span class="muted">(streaming events)</span></h3>
+    <div id="live-log">
+      <pre id="live-log-pre"></pre>
+    </div>
+
+    <h3 class="section-h">Agent ↔ Decision Maker conversations <span class="muted">(typed live as the LLM answers)</span></h3>
+    <div id="convos"></div>
+
+    <h3 class="section-h">Pipeline timeline</h3>
+    <ol id="agent-timeline"></ol>
+    </div><!-- /col-mid -->
+
+    <aside class="col-right">
+      <h3 class="section-h">Agent outputs <span class="muted">(what each phase produced)</span></h3>
+      <div id="outputs-panel">
+        <div class="outputs-empty muted">As each agent finishes, its computed result appears here.</div>
+      </div>
+    </aside>
+
+    </div><!-- /three-col-wrap -->
+  </section>
+
   <section id="cluster-grid" class="grid"></section>
 
   <aside id="detail-panel" class="panel hidden">
@@ -37,18 +228,126 @@
 
 <!-- Memory drawer (feedback log + preview) -->
 <div id="memory-drawer" class="drawer hidden">
+  <div class="drawer-inner">
   <div class="drawer-head">
     <h2>Adaptive memory</h2>
     <button class="close" id="close-memory">×</button>
   </div>
-  <p class="muted">
-    Every change you make is stored here and surfaced to the Decision Maker
-    on every future pipeline run as <em>USER PREFERENCES</em>. Set priority
-    to control how strongly the agents weight each one.
+
+  <p class="muted drawer-intro">
+    Every change you make in the UI is stored here as a labeled rule
+    (<code>user_change : priority : date</code>) and replayed to the
+    Decision Maker on every future pipeline run. Set the priority to control
+    how strongly the agents weight each rule.
   </p>
-  <div id="feedback-list"></div>
-  <h3>Preview of what the agents will see next run</h3>
-  <pre id="prefs-preview" class="preview"></pre>
+
+  <!-- Always-available action: add a new global rule directly from the drawer -->
+  <section class="mem-section">
+    <h3>+ Add a new memory rule</h3>
+    <div class="add-rule-card">
+      <textarea id="mem-add-text" rows="3"
+        placeholder="e.g. 'Never use the word shopper' · 'Personas should be 2-3 words max' · 'Always reference dollar amounts'"></textarea>
+      <div class="add-rule-row">
+        <select id="mem-add-priority">
+          <option value="high" selected>High priority</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <button class="primary" id="mem-add-btn">Save rule</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Filter chips -->
+  <section class="mem-section">
+    <h3>Stored memory <span id="mem-count" class="muted">(0)</span></h3>
+    <div class="mem-filters" id="mem-filters">
+      <button class="chip on" data-filter="all">All</button>
+      <button class="chip" data-filter="global_rule">Global rules</button>
+      <button class="chip" data-filter="naming_hint">Naming hints</button>
+      <button class="chip" data-filter="manual_override">Manual edits</button>
+      <button class="chip" data-filter="merge">Merges</button>
+      <button class="chip" data-filter="inactive">Inactive</button>
+    </div>
+    <div id="feedback-list"></div>
+  </section>
+
+  <section class="mem-section">
+    <h3>Preview — what the Decision Maker will see next run</h3>
+    <p class="muted">
+      This block is prepended to the agents' LLM prompts. If it's empty,
+      no rules are active.
+    </p>
+    <pre id="prefs-preview" class="preview"></pre>
+  </section>
+  </div>
+</div>
+
+<!-- Silhouette-target relax modal: 5 consecutive misses, ask the user -->
+<div id="relax-modal" class="modal hidden">
+  <div class="modal-card">
+    <h2>⏸ 5 failures in a row — lower the silhouette target?</h2>
+    <p class="muted">
+      The pipeline has tried 5 iterations and none reached the current
+      silhouette target. Lower the bar to keep going, or hit "Auto-lower"
+      to drop it by 0.1.
+    </p>
+    <div class="warn-context" id="relax-context"></div>
+    <label class="relax-label">
+      New silhouette target
+      <input id="relax-target" type="number" step="0.05" min="0.05" max="1.0" />
+    </label>
+    <div class="modal-actions">
+      <button id="relax-auto" class="ghost">Auto-lower (−0.1)</button>
+      <button id="relax-apply" class="primary">Apply &amp; continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mid-pipeline decision modal (interactive mode): pipeline is paused -->
+<div id="decision-modal" class="modal hidden">
+  <div class="modal-card">
+    <h2>⏸ Pipeline paused — your decision needed</h2>
+    <p class="muted">
+      Interactive mode is on. <b id="decision-agent">An agent</b> reported a warning. Tell the
+      pipeline how to handle it; the agents will pick up your response immediately.
+    </p>
+    <div class="warn-context" id="decision-context"></div>
+    <textarea id="decision-response" rows="4"
+      placeholder="e.g. 'Yes, apply log-transform to skewed numeric features before clustering.'"></textarea>
+    <div class="modal-actions">
+      <select id="decision-priority">
+        <option value="high" selected>High priority</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <button id="decision-bypass" class="ghost">Bypass (auto-proceed)</button>
+      <button id="decision-apply" class="primary">Apply &amp; continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Warning-respond modal: user converts a warning into a high-priority rule -->
+<div id="warn-modal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Tell the agents how to handle this</h2>
+    <p class="muted">
+      Your response is stored as a high-priority <em>global rule</em> and replayed to the
+      Decision Maker on the next iteration / run. Example:
+      <em>"Yes, apply log-transform to skewed numeric features before clustering."</em>
+    </p>
+    <div class="warn-context" id="warn-context"></div>
+    <textarea id="warn-response" rows="4" placeholder="Tell the agents what to do…"></textarea>
+    <div class="modal-actions">
+      <select id="warn-priority">
+        <option value="high" selected>High priority</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <button id="warn-cancel" class="ghost">Cancel</button>
+      <button id="warn-save" class="primary">Save &amp; apply</button>
+    </div>
+  </div>
 </div>
 
 <!-- Global rule modal -->

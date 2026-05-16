@@ -24,8 +24,31 @@ from __future__ import annotations
 
 import json
 import pathlib
+import time
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal
+
+
+DEFAULT_EVENT_LOG = pathlib.Path("outputs/pipeline_events.jsonl")
+MODE_FILE = pathlib.Path("outputs/pipeline_mode.json")
+PENDING_DECISION = pathlib.Path("outputs/pending_decision.json")
+DECISION_TIMEOUT_S = 300   # 5 min: how long to wait for user in interactive mode
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def read_pipeline_mode() -> str:
+    """Returns 'interactive' or 'bypass' (the default)."""
+    try:
+        if MODE_FILE.exists():
+            data = json.loads(MODE_FILE.read_text(encoding="utf-8"))
+            return 'interactive' if str(data.get('mode')) == 'interactive' else 'bypass'
+    except Exception:
+        pass
+    return 'bypass'
 
 
 @dataclass
@@ -89,10 +112,73 @@ class OrchestratorBus:
       - Call bus.ask()    to request LLM reasoning from the Orchestrator
     """
 
-    def __init__(self) -> None:
+    def __init__(self, event_log_path: pathlib.Path | str | None = DEFAULT_EVENT_LOG) -> None:
         self._log: list[OrchestratorMessage] = []
         self._llm_handler: Callable | None = None
         self._query_log: list[dict] = []  # log of all LLM queries
+
+        # Incremental event stream consumed by the UI (Server-Sent Events).
+        # Truncated on every new bus so each pipeline run starts clean.
+        self._event_log_path: pathlib.Path | None = (
+            pathlib.Path(event_log_path) if event_log_path else None
+        )
+        self.run_id: str = _now_iso()
+        if self._event_log_path is not None:
+            try:
+                self._event_log_path.parent.mkdir(parents=True, exist_ok=True)
+                # Truncate to mark a fresh run; the UI keys off this.
+                self._event_log_path.write_text("", encoding="utf-8")
+                # Also clear stale per-run outputs from any prior session — these
+                # would show up in the UI's cluster grid + Evidence tab as
+                # outdated info. The pipeline writes fresh copies on completion.
+                for stale in (
+                    self._event_log_path.parent / "last_upload_preview.json",
+                    self._event_log_path.parent / "pending_intent.json",
+                    self._event_log_path.parent / "pending_decision.json",
+                    self._event_log_path.parent / "pending_target_change.json",
+                    # Per-run cluster + evidence outputs
+                    self._event_log_path.parent / "personas.json",
+                    self._event_log_path.parent / "cluster_profiles.json",
+                    self._event_log_path.parent / "cluster_lineage.json",
+                    self._event_log_path.parent / "classifier_metrics.json",
+                    self._event_log_path.parent / "silhouette_curve.json",
+                    self._event_log_path.parent / "persona_summary.txt",
+                    self._event_log_path.parent / "persona_metrics.csv",
+                    self._event_log_path.parent / "agents_conversation.txt",
+                    self._event_log_path.parent / "pipeline_log.json",
+                    self._event_log_path.parent / "pca_iterations.json",
+                ):
+                    try:
+                        stale.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                self.emit("run_started", run_id=self.run_id)
+            except OSError as exc:
+                print(f"  [Bus] WARNING: could not initialise event log: {exc}")
+                self._event_log_path = None
+
+    # ── Event streaming (consumed by the UI) ───────────────────────────────────
+
+    def emit(self, event_type: str, **payload: Any) -> None:
+        """Append a single event line to the event stream JSONL.
+
+        Used for non-agent milestones (pipeline_started, iteration_started,
+        pipeline_complete, etc). Failures are swallowed so a missing/locked
+        log file never breaks the pipeline.
+        """
+        if self._event_log_path is None:
+            return
+        record = {
+            "event": event_type,
+            "ts": _now_iso(),
+            "run_id": self.run_id,
+            **payload,
+        }
+        try:
+            with self._event_log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        except OSError as exc:
+            print(f"  [Bus] WARNING: event emit failed ({event_type}): {exc}")
 
     # ── LLM mediation ──────────────────────────────────────────────────────────
 
@@ -113,6 +199,7 @@ class OrchestratorBus:
         purpose: str,
         prompt: str,
         max_tokens: int = 1024,
+        category: str = 'pipeline',
     ) -> str:
         """
         Request LLM reasoning from the Orchestrator.
@@ -143,13 +230,23 @@ class OrchestratorBus:
                 "Call bus.set_llm_handler() before agents run."
             )
 
-        print(f"  [{agent} → Orchestrator] Requesting LLM: {purpose}")
-        result = self._llm_handler(
-            agent=agent,
-            purpose=purpose,
-            prompt=prompt,
-            max_tokens=max_tokens,
-        )
+        print(f"  [{agent} → Orchestrator] Requesting LLM: {purpose} ({category})")
+        # Try to pass category; tolerate older handlers that don't accept it
+        try:
+            result = self._llm_handler(
+                agent=agent,
+                purpose=purpose,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                category=category,
+            )
+        except TypeError:
+            result = self._llm_handler(
+                agent=agent,
+                purpose=purpose,
+                prompt=prompt,
+                max_tokens=max_tokens,
+            )
         self._query_log.append({
             "agent": agent,
             "purpose": purpose,
@@ -181,6 +278,110 @@ class OrchestratorBus:
                 print(f"         Issue: {issue}")
         if message.doubts:
             print(f"         Doubt: {message.doubts}")
+
+        # Stream the same status to the UI event log
+        self.emit(
+            "agent_report",
+            agent=message.agent,
+            iteration=message.iteration,
+            status=message.status,
+            what_was_done=message.what_was_done,
+            what_was_not_done=message.what_was_not_done,
+            doubts=message.doubts,
+            issues=list(message.issues),
+            metrics=dict(message.metrics),
+            recommendation=message.recommendation,
+            context=dict(message.context),   # full evidence payload for the UI
+        )
+
+        # ── INTERACTIVE MODE: pause on warnings/blocks until the user decides ──
+        # Only triggers when:
+        #   1. Mode is 'interactive' (set via UI toggle, persisted to disk)
+        #   2. The report has at least one issue
+        # The UI shows a modal; user submits a decision via /api/decision which
+        # writes outputs/pending_decision.json. We poll until that arrives, then
+        # save the decision as a high-priority global_rule so subsequent agents
+        # see it in their build_preferences_block() prompts.
+        if message.issues and read_pipeline_mode() == 'interactive':
+            self._wait_for_user_decision(message)
+
+    def _wait_for_user_decision(self, message: 'OrchestratorMessage') -> None:
+        """Pause until the user submits a decision via the UI."""
+        # Make sure any prior decision file doesn't auto-resolve us
+        try:
+            PENDING_DECISION.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        self.emit(
+            "awaiting_user_decision",
+            agent=message.agent,
+            iteration=message.iteration,
+            issues=list(message.issues),
+            doubts=message.doubts,
+            what_was_done=message.what_was_done,
+            timeout_s=DECISION_TIMEOUT_S,
+        )
+        print(f"\n  [INTERACTIVE MODE] Paused after {message.agent} reported warnings.")
+        print(f"  [INTERACTIVE MODE] Open the UI, choose how to handle it, and click Apply.")
+        print(f"  [INTERACTIVE MODE] Timeout: {DECISION_TIMEOUT_S}s (then auto-bypass).")
+
+        deadline = time.time() + DECISION_TIMEOUT_S
+        decision = None
+        try:
+            while time.time() < deadline:
+                if PENDING_DECISION.exists():
+                    try:
+                        decision = json.loads(PENDING_DECISION.read_text(encoding='utf-8'))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        print(f"  [INTERACTIVE MODE] Bad decision file: {exc}")
+                    try:
+                        PENDING_DECISION.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    break
+                time.sleep(0.6)
+        except KeyboardInterrupt:
+            print("\n  [INTERACTIVE MODE] Interrupted — proceeding without decision.")
+            return
+
+        if decision is None:
+            print(f"  [INTERACTIVE MODE] Timed out — bypassing.")
+            self.emit("user_decision_received",
+                      agent=message.agent, response="(timeout — auto-bypassed)",
+                      action="bypass", source="timeout")
+            return
+
+        action = decision.get('action') or 'apply'
+        response = (decision.get('response') or '').strip()
+        priority = decision.get('priority') or 'high'
+
+        # Always log the decision in events for transparency
+        self.emit(
+            "user_decision_received",
+            agent=message.agent,
+            response=response,
+            action=action,
+            priority=priority,
+        )
+        print(f"  [INTERACTIVE MODE] User decision ({action}): {response[:120]}")
+
+        # Persist as a high-priority memory rule so subsequent agent prompts see it
+        if response and action != 'ignore':
+            try:
+                from ui.feedback_store import append as fb_append
+                rule = (
+                    f'Guidance for {message.agent} warning '
+                    f'("{"; ".join(message.issues) if message.issues else "warning"}"): '
+                    f'{response}'
+                )
+                fb_append({
+                    'type': 'global_rule',
+                    'rule': rule,
+                    'priority': priority,
+                })
+            except Exception as _exc:  # noqa: BLE001
+                print(f"  [INTERACTIVE MODE] Could not save rule: {_exc}")
 
     def get_log(self) -> list[OrchestratorMessage]:
         """Return all status messages in chronological order."""

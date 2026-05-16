@@ -15,15 +15,17 @@ GET   /api/preferences-preview       show the text that gets prepended to prompt
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
+import time
 
 # Allow running as `python ui/app.py` or `python -m ui.app`
 _ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from ui import feedback_store as fb
 # `make_persona_agent` is imported lazily inside the endpoints that need it,
@@ -35,12 +37,25 @@ PERSONAS_PATH = OUT / 'personas.json'
 PROFILES_PATH = OUT / 'cluster_profiles.json'
 LINEAGE_PATH = OUT / 'cluster_lineage.json'
 CLF_METRICS_PATH = OUT / 'classifier_metrics.json'
+EVENTS_PATH = OUT / 'pipeline_events.jsonl'
 
 app = Flask(
     __name__,
     static_folder=str(pathlib.Path(__file__).parent / 'static'),
     template_folder=str(pathlib.Path(__file__).parent / 'templates'),
 )
+# Allow large dataset uploads (default Flask cap is too small for typical CSVs)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024   # 1 GB
+
+UPLOAD_DIR = _ROOT / 'data' / 'uploads'
+_ALLOWED_SUFFIXES = {'.csv', '.tsv', '.parquet'}
+
+
+def _safe_filename(name: str) -> str:
+    """Strip directories and risky chars from an uploaded filename."""
+    base = pathlib.Path(name).name
+    cleaned = ''.join(c for c in base if c.isalnum() or c in ('.', '-', '_'))
+    return cleaned or 'upload.dat'
 
 
 # ── File helpers ──────────────────────────────────────────────────────────────
@@ -377,6 +392,13 @@ def update_feedback(fb_id: str):
     return jsonify({'ok': True})
 
 
+@app.delete('/api/feedback/<fb_id>')
+def delete_feedback(fb_id: str):
+    if not fb.delete(fb_id):
+        return jsonify({'error': 'No matching entry'}), 404
+    return jsonify({'ok': True})
+
+
 @app.post('/api/feedback/global')
 def add_global_rule():
     payload = request.get_json(force=True) or {}
@@ -396,16 +418,688 @@ def preferences_preview():
     return jsonify({'text': fb.build_preferences_block()})
 
 
+# ── Routes: live pipeline event stream ────────────────────────────────────────
+
+def _read_events() -> list[dict]:
+    """Return all events from outputs/pipeline_events.jsonl (empty if absent)."""
+    if not EVENTS_PATH.exists():
+        return []
+    out: list[dict] = []
+    for line in EVENTS_PATH.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def _derive_status(events: list[dict]) -> dict:
+    """Reduce the events log into a coarse pipeline status snapshot."""
+    run_id = None
+    last_ts = None
+    current_agent = None
+    iteration = None
+    pipeline_running = False
+    last_complete = None
+    for e in events:
+        last_ts = e.get('ts') or last_ts
+        ev = e.get('event')
+        if ev in ('run_started', 'pipeline_started'):
+            run_id = e.get('run_id') or run_id
+            pipeline_running = True
+            last_complete = None
+        elif ev == 'iteration_started':
+            iteration = e.get('iteration')
+        elif ev == 'agent_report':
+            current_agent = e.get('agent') or current_agent
+        elif ev == 'pipeline_complete':
+            pipeline_running = False
+            last_complete = e
+    return {
+        'pipeline_running': pipeline_running,
+        'run_id': run_id,
+        'current_agent': current_agent,
+        'iteration': iteration,
+        'last_event_ts': last_ts,
+        'last_complete': last_complete,
+        'has_personas': PERSONAS_PATH.exists(),
+    }
+
+
+@app.get('/api/status')
+def get_status():
+    return jsonify(_derive_status(_read_events()))
+
+
+@app.get('/api/events')
+def get_events():
+    return jsonify({'events': _read_events()})
+
+
+@app.delete('/api/upload-preview')
+def clear_upload_preview():
+    """Remove the saved upload preview so the Evidence tab cleans up."""
+    p = OUT / 'last_upload_preview.json'
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return jsonify({'ok': True})
+
+
+@app.post('/api/upload')
+def upload_dataset():
+    """Save an uploaded CSV/parquet to data/uploads/ and return its path."""
+    if 'file' not in request.files:
+        return jsonify({'error': "No file part in request (expected field 'file')"}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    name = _safe_filename(f.filename)
+    suffix = pathlib.Path(name).suffix.lower()
+    if suffix not in _ALLOWED_SUFFIXES:
+        return jsonify({
+            'error': f'Unsupported file type: {suffix or "(none)"}. Allowed: '
+                     + ', '.join(sorted(_ALLOWED_SUFFIXES)),
+        }), 400
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UPLOAD_DIR / name
+    # If a file with the same name already exists, suffix with a counter
+    if dest.exists():
+        stem = dest.stem
+        i = 1
+        while dest.exists():
+            dest = UPLOAD_DIR / f'{stem}_{i}{suffix}'
+            i += 1
+
+    f.save(str(dest))
+    size = dest.stat().st_size
+    rel = dest.relative_to(_ROOT)
+
+    preview = _peek_file(dest)
+
+    # Persist so /api/evidence can return it (Evidence tab uses the full preview)
+    try:
+        OUT.mkdir(parents=True, exist_ok=True)
+        (OUT / 'last_upload_preview.json').write_text(
+            json.dumps({
+                'path': str(rel), 'name': dest.name, 'size': size, 'preview': preview,
+            }, ensure_ascii=False),
+            encoding='utf-8',
+        )
+    except OSError:
+        pass
+
+    return jsonify({
+        'path': str(rel),
+        'name': dest.name,
+        'size': size,
+        'size_human': f'{size / (1024*1024):.1f} MB' if size >= 1024*1024
+                       else f'{size / 1024:.1f} KB',
+        'preview': preview,
+    })
+
+
+def _peek_file(path: pathlib.Path) -> dict | None:
+    """Return shape + columns + first 10 rows + per-column stats.
+
+    Per-column stats (dtype, missing%, skewness) provide the *evidence* behind
+    any later DatasetExaminer warning — the UI shows them as bars so the user
+    can verify the agent's claim instead of just trusting it.
+
+    Best-effort: large CSVs sample up to 50k rows for the stats; the row count
+    comes from a streamed line count of the full file.
+    """
+    try:
+        import pandas as pd
+    except Exception:
+        return None
+    suffix = path.suffix.lower()
+    try:
+        if suffix == '.parquet':
+            df = pd.read_parquet(path)
+            n_rows = len(df)
+            stats_df = df.sample(min(len(df), 50_000), random_state=42) if len(df) > 50_000 else df
+            sample = df.head(10)
+        elif suffix in ('.csv', '.tsv'):
+            sep = '\t' if suffix == '.tsv' else ','
+            sample = pd.read_csv(path, sep=sep, nrows=10, low_memory=False)
+            stats_df = pd.read_csv(path, sep=sep, nrows=50_000, low_memory=False)
+            try:
+                with path.open('r', encoding='utf-8', errors='ignore') as fh:
+                    n_rows = max(0, sum(1 for _ in fh) - 1)
+            except Exception:
+                n_rows = None
+        else:
+            return None
+    except Exception as exc:  # noqa: BLE001
+        return {'error': f'preview failed: {exc}'}
+
+    cols = [str(c) for c in sample.columns]
+    rows = []
+    for _, r in sample.iterrows():
+        rows.append([
+            ('' if pd.isna(v) else str(v))[:80]
+            for v in r.tolist()
+        ])
+
+    # Per-column statistics for the warning-evidence chart
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+    col_stats = []
+    for c in stats_df.columns:
+        s = stats_df[c]
+        dtype = str(s.dtype)
+        missing_pct = round(float(s.isna().mean() * 100), 2)
+        is_numeric = bool(getattr(s, 'dtype', None) is not None and
+                          str(s.dtype) not in ('object', 'string')) and \
+                     (s.dtype.kind in 'biufc' if hasattr(s.dtype, 'kind') else False)
+        skew = None
+        histogram = None
+        stats = None
+        if is_numeric:
+            try:
+                v = s.dropna()
+                if len(v) > 2 and v.std() > 0:
+                    skew = round(float(v.skew()), 4)
+                    # 30-bin histogram — the visual proof of the skew
+                    if np is not None and len(v) >= 10:
+                        arr = v.to_numpy(dtype=float, na_value=float('nan'))
+                        arr = arr[~np.isnan(arr)]
+                        if arr.size:
+                            counts, edges = np.histogram(arr, bins=30)
+                            histogram = {
+                                'counts': counts.tolist(),
+                                'edges': [round(float(e), 4) for e in edges.tolist()],
+                            }
+                            stats = {
+                                'min': round(float(arr.min()), 4),
+                                'max': round(float(arr.max()), 4),
+                                'mean': round(float(arr.mean()), 4),
+                                'median': round(float(np.median(arr)), 4),
+                                'std': round(float(arr.std()), 4),
+                            }
+            except Exception:
+                pass
+        col_stats.append({
+            'name': str(c),
+            'dtype': dtype,
+            'numeric': bool(is_numeric),
+            'missing_pct': missing_pct,
+            'skew': skew,
+            'histogram': histogram,
+            'stats': stats,
+        })
+
+    return {
+        'n_rows': n_rows,
+        'n_cols': len(cols),
+        'columns': cols,
+        'rows': rows,
+        'col_stats': col_stats,
+        'stats_sample_size': len(stats_df),
+    }
+
+
+MODE_PATH = OUT / 'pipeline_mode.json'
+PENDING_DECISION_PATH = OUT / 'pending_decision.json'
+
+
+@app.get('/api/mode')
+def get_mode():
+    mode = 'bypass'
+    if MODE_PATH.exists():
+        try:
+            data = json.loads(MODE_PATH.read_text(encoding='utf-8'))
+            if data.get('mode') == 'interactive':
+                mode = 'interactive'
+        except Exception:
+            pass
+    return jsonify({'mode': mode})
+
+
+@app.post('/api/mode')
+def set_mode():
+    payload = request.get_json(force=True) or {}
+    mode = payload.get('mode')
+    if mode not in ('interactive', 'bypass'):
+        return jsonify({'error': "mode must be 'interactive' or 'bypass'"}), 400
+    OUT.mkdir(parents=True, exist_ok=True)
+    MODE_PATH.write_text(json.dumps({'mode': mode}, indent=2), encoding='utf-8')
+    return jsonify({'mode': mode})
+
+
+@app.post('/api/silhouette-target')
+def submit_silhouette_target():
+    """Save the user's new silhouette_target so the paused orchestrator picks it up."""
+    payload = request.get_json(force=True) or {}
+    try:
+        t = float(payload.get('target'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'target must be a number'}), 400
+    if not (0.05 <= t <= 1.0):
+        return jsonify({'error': 'target must be between 0.05 and 1.0'}), 400
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / 'pending_target_change.json').write_text(
+        json.dumps({'target': t}, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    return jsonify({'ok': True, 'target': t})
+
+
+@app.post('/api/decision')
+def submit_decision():
+    """Save the user's mid-pipeline decision so the paused bus can consume it."""
+    payload = request.get_json(force=True) or {}
+    response = (payload.get('response') or '').strip()
+    action = payload.get('action') or 'apply'
+    priority = payload.get('priority') or 'high'
+    if not response and action != 'ignore':
+        return jsonify({'error': 'response is required (or set action=ignore)'}), 400
+    OUT.mkdir(parents=True, exist_ok=True)
+    PENDING_DECISION_PATH.write_text(
+        json.dumps({'response': response, 'action': action, 'priority': priority,
+                    'agent': payload.get('agent')}, indent=2, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    return jsonify({'ok': True})
+
+
+@app.post('/api/intent')
+def submit_intent():
+    """Save the UI-submitted intent so UserInputAgent can pick it up."""
+    payload = request.get_json(force=True) or {}
+    target = (payload.get('target_entity') or '').strip()
+    purpose = (payload.get('business_purpose') or '').strip()
+    if not target:
+        return jsonify({'error': 'target_entity is required'}), 400
+    if len(purpose) < 5:
+        return jsonify({'error': 'business_purpose is required (a sentence or two)'}), 400
+
+    cleaned = {
+        'target_entity': target,
+        'business_purpose': purpose,
+        'dataset_path': (payload.get('dataset_path') or '').strip(),
+        'constraints': (payload.get('constraints') or '').strip(),
+        'n_clusters_requested': payload.get('n_clusters_requested'),
+        'must_have_clusters': payload.get('must_have_clusters') or [],
+    }
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / 'pending_intent.json').write_text(
+        json.dumps(cleaned, indent=2, ensure_ascii=False), encoding='utf-8',
+    )
+    return jsonify({'ok': True, 'intent': cleaned})
+
+
+@app.get('/api/evidence')
+def get_evidence():
+    """Aggregated evidence for the Evidence tab: dataset preview, silhouette
+    curve, cluster sizes, per-class F1, etc. Best-effort; missing files just
+    omit their section."""
+    out: dict = {}
+
+    # Silhouette / k-curve
+    sil = _load_json(OUT / 'silhouette_curve.json', None)
+    if sil:
+        out['silhouette_curve'] = sil
+
+    # Cluster sizes from profiles
+    profiles = _load_json(PROFILES_PATH, None)
+    if profiles:
+        sizes = []
+        for cid, p in profiles.items():
+            n = int(p.get('n_entities', p.get('n_customers', 0)) or 0)
+            pct = float(p.get('pct_total', (p.get('pct_of_total', 0) or 0) * 100) or 0)
+            sizes.append({'cluster_id': cid, 'n': n, 'pct': pct,
+                          'algo_detail': p.get('algo_detail') or ''})
+        out['cluster_sizes'] = sizes
+
+    # Classifier metrics
+    clf = _load_json(CLF_METRICS_PATH, None)
+    if clf:
+        out['classifier'] = {
+            'cv_f1_macro': clf.get('cv_f1_macro'),
+            'cv_accuracy': clf.get('cv_accuracy'),
+            'cv_f1_weighted': clf.get('cv_f1_weighted'),
+            'per_class_f1': clf.get('per_class_f1', {}),
+            'top20_features': clf.get('top20_features', {}),
+        }
+
+    # Lineage tree (parent/child relationships from deepening)
+    lineage = _load_json(LINEAGE_PATH, None)
+    if lineage:
+        out['lineage'] = lineage
+
+    # Most recent uploaded dataset preview
+    upload = _load_json(OUT / 'last_upload_preview.json', None)
+    if upload:
+        out['upload_preview'] = upload
+
+    # Per-iteration PCA projections (data points + cluster labels)
+    pca = _load_json(OUT / 'pca_iterations.json', None)
+    if pca:
+        out['pca_iterations'] = pca
+
+    return jsonify(out)
+
+
+@app.post('/api/cluster-chat')
+def cluster_chat():
+    """Multi-turn chat with the LLM about a single named cluster.
+
+    Stateless: the client maintains conversation history and sends it on every
+    call. Each LLM call lands in the 'naming' cost ledger, separate from the
+    pipeline + evidence ledgers.
+    """
+    payload = request.get_json(force=True) or {}
+    cid = str(payload.get('cluster_id', '')).strip()
+    message = (payload.get('message') or '').strip()
+    history = payload.get('history') or []
+    mode = payload.get('mode') or 'discuss'   # 'discuss' or 'conclude'
+    if not cid or not message:
+        return jsonify({'error': 'cluster_id and message are required'}), 400
+
+    personas = _load_personas()
+    if cid not in personas:
+        return jsonify({'error': f'Cluster {cid} not found'}), 404
+    cluster = personas[cid]
+    persona = cluster.get('persona', {})
+    stats = cluster.get('cluster_stats', {})
+
+    # System prompt grounds the LLM in the cluster's actual numbers
+    top_above = stats.get('top_above_average', {})
+    top_below = stats.get('top_below_average', {})
+    feat_means = stats.get('feature_means', {})
+    above_lines = [f"  {f}: {round(r, 2)}x avg (mean={round(feat_means.get(f, 0), 4)})"
+                   for f, r in list(top_above.items())[:15]]
+    below_lines = [f"  {f}: {round(r, 2)}x avg (mean={round(feat_means.get(f, 0), 4)})"
+                   for f, r in list(top_below.items())[:10]]
+
+    sys_lines = [
+        f"You are a data analyst helping a user understand cluster {cid} from a",
+        f"customer-segmentation pipeline. Answer concretely, cite specific feature",
+        f"names + values when asked WHY a label was chosen. If a trait was inferred",
+        f"from indirect signals, say so — don't invent evidence.",
+        f"",
+        f"Cluster {cid} — \"{persona.get('name', '?')}\"",
+        f"  Tagline: {persona.get('tagline', '')}",
+        f"  Description: {persona.get('description', '')}",
+        f"  Traits: {persona.get('traits', [])}",
+        f"  Confidence: {persona.get('confidence', '?')}/10",
+        f"  Size: {stats.get('n_entities', '?')} entities ({stats.get('pct_total', 0):.1f}% of total)",
+        f"",
+        f"FEATURES THIS CLUSTER IS STRONGER IN (vs overall):",
+        *above_lines,
+        f"",
+        f"FEATURES THIS CLUSTER IS WEAKER IN:",
+        *below_lines,
+    ]
+    if mode == 'conclude':
+        sys_lines += [
+            "",
+            "The user is wrapping up. Based on the conversation so far, summarise",
+            "the conclusion in 2 sentences AND propose ONE of these actions:",
+            "  rename: a new name (give the new name)",
+            "  merge: suggest which cluster id to merge with",
+            "  keep: keep the current name",
+            "  recluster: re-run clustering with specific guidance",
+            "Return ONLY a JSON object: {\"summary\": \"...\", \"action\": \"rename|merge|keep|recluster\", \"new_name\": \"...\", \"merge_with\": \"<cid>\", \"reason\": \"...\"}",
+        ]
+
+    system_prompt = "\n".join(sys_lines)
+
+    # Build message array (history + new user message)
+    messages = []
+    for m in history:
+        role = m.get('role')
+        content = (m.get('content') or '').strip()
+        if role in ('user', 'assistant') and content:
+            messages.append({'role': role, 'content': content})
+    messages.append({'role': 'user', 'content': message})
+
+    from ui.llm_bridge import _load_env_file
+    _load_env_file()
+    if not os.environ.get('ANTHROPIC_API_KEY'):
+        return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+    import anthropic, time as _time
+    client = anthropic.Anthropic()
+
+    # Emit started event into the live event log (separate naming ledger)
+    events_path = OUT / 'pipeline_events.jsonl'
+    def _emit(event, **payload):
+        if not events_path.exists():
+            return
+        from datetime import datetime, timezone
+        rec = {'event': event,
+               'ts': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+               **payload}
+        try:
+            with events_path.open('a', encoding='utf-8') as f:
+                f.write(json.dumps(rec, ensure_ascii=False, default=str) + '\n')
+        except OSError:
+            pass
+
+    agent_label = f'ClusterChat_C{cid}'
+    purpose = f'discuss cluster {cid} ({persona.get("name", "?")[:30]})'
+    _emit('llm_call_started', agent=agent_label, purpose=purpose,
+          prompt_chars=len(system_prompt) + len(message),
+          prompt=f'[SYSTEM]\n{system_prompt}\n\n[USER]\n{message}',
+          category='naming')
+
+    t0 = _time.perf_counter()
+    try:
+        resp = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=800,
+            system=system_prompt,
+            messages=messages,
+        )
+    except Exception as exc:
+        return jsonify({'error': f'LLM call failed: {exc}'}), 500
+    elapsed = round(_time.perf_counter() - t0, 2)
+    reply = resp.content[0].text
+
+    _emit('llm_call_finished', agent=agent_label, purpose=purpose,
+          input_tokens=resp.usage.input_tokens,
+          output_tokens=resp.usage.output_tokens,
+          time_s=elapsed, response=reply, category='naming')
+
+    out = {'reply': reply,
+           'tokens': {'in': resp.usage.input_tokens, 'out': resp.usage.output_tokens,
+                      'time_s': elapsed}}
+
+    # On 'conclude' we try to parse the JSON proposal
+    if mode == 'conclude':
+        try:
+            text = reply.strip()
+            if '```' in text:
+                for part in text.split('```'):
+                    p = part.strip()
+                    if p.startswith('json'):
+                        p = p[4:].strip()
+                    if p.startswith('{'):
+                        text = p
+                        break
+            out['proposal'] = json.loads(text)
+        except Exception:
+            out['proposal'] = None
+    return jsonify(out)
+
+
+@app.post('/api/explain')
+def explain_warning():
+    """LLM call (category='evidence') that explains a warning and recommends
+    which existing visual to look at. Cost is tracked separately so it doesn't
+    inflate the main pipeline's spend."""
+    payload = request.get_json(force=True) or {}
+    agent = (payload.get('agent') or 'agent').strip()
+    issue = (payload.get('issue') or '').strip()
+    evidence = payload.get('evidence') or {}   # numbers backing the warning
+    if not issue:
+        return jsonify({'error': 'issue is required'}), 400
+
+    # In bypass mode the user sees this as the AGENT'S DECISION (not advice).
+    # The LLM must respond as if the action has already been taken / queued —
+    # active voice, present/past tense, no "we recommend" or "you should".
+    ev_text = json.dumps(evidence, indent=2, ensure_ascii=False)[:1500]
+    prompt = f"""You speak FOR the multi-agent pipeline. A warning fired and the
+pipeline is in BYPASS mode — that means the decision has already been made and
+the pipeline is continuing. Your job is to tell the user, in active voice,
+what the agents JUST DECIDED to do about this warning.
+
+Use phrasing like: "The pipeline will / chose to / is applying / is keeping /
+is ignoring". DO NOT use "we recommend", "you should", "consider", "you may want
+to". Be concrete and short.
+
+Warning from: {agent}
+Warning text: "{issue}"
+
+Supporting evidence (numbers the agent saw):
+{ev_text}
+
+Return ONLY a valid JSON object — no markdown fences, no extra text:
+{{
+  "decision": "<the agent's actual decision in 1-2 sentences, active voice>",
+  "reasoning": "<one sentence on why this is the right call given the evidence>",
+  "visual_to_check": "<one sentence pointing to a specific chart already in the Data & evidence tab where the user can verify the warning was real>"
+}}"""
+
+    # Spin up a lightweight bus + handler — same shape llm_bridge.py uses
+    try:
+        from ui.llm_bridge import make_persona_agent  # reuses the env loader
+        # We don't actually use the agent; just borrow its bus+handler scaffolding
+        _, bus = make_persona_agent()
+        raw = bus.ask(agent='EvidenceExplainer', purpose=f'explain warning from {agent}',
+                      prompt=prompt, max_tokens=400, category='evidence')
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({'error': f'LLM call failed: {exc}'}), 500
+
+    # Best-effort JSON extraction
+    text = raw.strip()
+    if '```' in text:
+        for part in text.split('```'):
+            p = part.strip()
+            if p.startswith('json'):
+                p = p[4:].strip()
+            if p.startswith('{'):
+                text = p
+                break
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = {'explanation': raw.strip(), 'visual_to_check': ''}
+    return jsonify(parsed)
+
+
+@app.get('/api/outputs-files')
+def list_outputs_files():
+    """List every file in outputs/ with size + modified time for the Evidence tab."""
+    files = []
+    if OUT.exists():
+        for p in sorted(OUT.iterdir(), key=lambda x: x.name.lower()):
+            if p.is_file():
+                try:
+                    st = p.stat()
+                    files.append({
+                        'name': p.name,
+                        'size': st.st_size,
+                        'size_human': (f'{st.st_size/(1024*1024):.1f} MB' if st.st_size >= 1024*1024
+                                       else f'{st.st_size/1024:.1f} KB' if st.st_size >= 1024
+                                       else f'{st.st_size} B'),
+                        'mtime': int(st.st_mtime),
+                    })
+                except OSError:
+                    pass
+    return jsonify({'files': files})
+
+
+@app.get('/api/outputs-file/<path:name>')
+def get_output_file(name: str):
+    """Serve a single file from outputs/ (read-only, sandboxed to outputs)."""
+    # Reject path traversal
+    if '..' in name or name.startswith('/'):
+        return jsonify({'error': 'invalid path'}), 400
+    target = OUT / name
+    try:
+        target = target.resolve()
+        if not str(target).startswith(str(OUT.resolve())):
+            return jsonify({'error': 'invalid path'}), 400
+    except OSError:
+        return jsonify({'error': 'invalid path'}), 400
+    if not target.exists() or not target.is_file():
+        return jsonify({'error': 'not found'}), 404
+    return send_from_directory(str(OUT), name)
+
+
+@app.get('/api/events/stream')
+def stream_events():
+    """Server-Sent Events: replays the existing log, then tails new lines."""
+    def _gen():
+        # 1. Replay everything that's already there so a late subscriber
+        #    gets the full picture without an extra /api/events round-trip.
+        try:
+            if EVENTS_PATH.exists():
+                with EVENTS_PATH.open('r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.rstrip('\n')
+                        if line:
+                            yield f'data: {line}\n\n'
+                    pos = f.tell()
+            else:
+                pos = 0
+        except OSError:
+            pos = 0
+
+        # 2. Tail loop. The file may be deleted/truncated when a fresh
+        #    pipeline starts — we detect that by checking the size.
+        last_heartbeat = time.time()
+        while True:
+            try:
+                if not EVENTS_PATH.exists():
+                    pos = 0
+                else:
+                    size = EVENTS_PATH.stat().st_size
+                    if size < pos:
+                        # File was truncated (new run started). Reset.
+                        pos = 0
+                    if size > pos:
+                        with EVENTS_PATH.open('r', encoding='utf-8') as f:
+                            f.seek(pos)
+                            for line in f:
+                                line = line.rstrip('\n')
+                                if line:
+                                    yield f'data: {line}\n\n'
+                            pos = f.tell()
+                # Heartbeat every ~15s to keep the connection alive.
+                if time.time() - last_heartbeat > 15:
+                    yield ': keep-alive\n\n'
+                    last_heartbeat = time.time()
+            except (OSError, GeneratorExit):
+                break
+            time.sleep(0.4)
+
+    return Response(_gen(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache',
+                             'X-Accel-Buffering': 'no'})
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(host: str = '127.0.0.1', port: int = 5057) -> None:
     if not PERSONAS_PATH.exists():
-        print(f'[ui] {PERSONAS_PATH} not found. Run run_pipeline.py first.')
-        sys.exit(1)
+        print(f'[ui] {PERSONAS_PATH} not found yet — serving live pipeline view only.')
     print(f'[ui] Serving cluster fine-tuning UI at http://{host}:{port}')
     print(f'[ui] Personas:  {PERSONAS_PATH}')
     print(f'[ui] Feedback log: {fb.LOG_PATH}')
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
 if __name__ == '__main__':

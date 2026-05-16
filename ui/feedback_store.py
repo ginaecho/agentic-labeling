@@ -96,6 +96,22 @@ def set_active(fb_id: str, active: bool) -> bool:
     return _rewrite(lambda e: {**e, 'active': bool(active)} if e.get('id') == fb_id else e)
 
 
+def delete(fb_id: str) -> bool:
+    """Hard-delete a feedback entry by id. Returns True if anything changed."""
+    entries = read_all()
+    kept = [e for e in entries if e.get('id') != fb_id]
+    if len(kept) == len(entries):
+        return False
+    if kept:
+        LOG_PATH.write_text(
+            '\n'.join(json.dumps(e, ensure_ascii=False) for e in kept) + '\n',
+            encoding='utf-8',
+        )
+    else:
+        LOG_PATH.write_text('', encoding='utf-8')
+    return True
+
+
 def build_preferences_block(
     types: Iterable[str] | None = None,
     limit: int = 25,

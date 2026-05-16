@@ -36,5 +36,12 @@ __pycache__/
 outputs/
 data/processed/
 
+# Re-uploaded datasets (each ~350 MB; data/raw/ has the canonical copy)
+data/uploads/
+
+# Demo recordings (generated locally)
+recordings/
+*.webm
+
 # Project docs not for repo
 CLAUDE.md

@@ -113,6 +113,12 @@ class PipelineState:
     selected_features: list[str] = field(default_factory=list)
     needs_feature_selection: bool = True
 
+    # Escalation rules (silhouette < target → reselect; N failures → re-engineer)
+    needs_feature_engineering: bool = False
+    consecutive_silhouette_failures: int = 0   # → re-engineer at max_reselect_failures (3)
+    silhouette_fail_for_relax: int = 0         # → relax target at max_relax_failures (5)
+    silhouette_target_override: Optional[float] = None   # dynamic, set by relax logic
+
     # Feedback strings routed to specific agents
     fs_feedback: str = ''
     cluster_feedback: str = ''

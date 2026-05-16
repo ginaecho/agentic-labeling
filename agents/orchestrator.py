@@ -269,8 +269,21 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
 - Logistic Regression: Fast, interpretable, best for linearly separable personas.
 """
 
-        def _llm_handler(agent: str, purpose: str, prompt: str, max_tokens: int) -> str:
-            print(f"\n  [Orchestrator] ← {agent} requests LLM help: {purpose}")
+        def _llm_handler(agent: str, purpose: str, prompt: str, max_tokens: int,
+                         category: str = 'pipeline') -> str:
+            print(f"\n  [Orchestrator] ← {agent} requests LLM help: {purpose} ({category})")
+            # Stream the request so the UI can show "Agent → Decision Maker: …"
+            try:
+                self.bus.emit(
+                    'llm_call_started',
+                    agent=agent,
+                    purpose=purpose,
+                    prompt_chars=len(prompt),
+                    prompt=prompt,
+                    category=category,
+                )
+            except Exception:
+                pass
 
             # Build system context: routing decisions get the full skill catalog + ML knowledge;
             # all other calls get a brief agent-role description.
@@ -310,6 +323,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             self._llm_calls.append({
                 'agent':         agent,
                 'purpose':       purpose,
+                'category':      category,
                 'input_tokens':  resp.usage.input_tokens,
                 'output_tokens': resp.usage.output_tokens,
                 'time_s':        elapsed,
@@ -318,6 +332,19 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 f"  [Orchestrator] → {agent}: LLM answered "
                 f"(in={resp.usage.input_tokens} out={resp.usage.output_tokens} {elapsed}s)"
             )
+            try:
+                self.bus.emit(
+                    'llm_call_finished',
+                    agent=agent,
+                    purpose=purpose,
+                    input_tokens=resp.usage.input_tokens,
+                    output_tokens=resp.usage.output_tokens,
+                    time_s=elapsed,
+                    response=resp.content[0].text,
+                    category=category,
+                )
+            except Exception:
+                pass
             return resp.content[0].text
 
         self.bus.set_llm_handler(_llm_handler)
@@ -380,6 +407,14 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
         run_history = []
         self._timings = defaultdict(list)
         self._pipeline_start = time.perf_counter()
+
+        # Announce pipeline start so the UI can switch to "live" mode immediately
+        self.bus.emit(
+            'pipeline_started',
+            features_path=features_path,
+            max_total_iterations=max_total_iterations,
+            f1_threshold=ClassifierAgent.F1_THRESHOLD,
+        )
 
         state = PipelineState(config=self.config)
 
@@ -471,6 +506,8 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
 
         if dataset_profile is None:
             print('\n[Orchestrator] DatasetExaminer BLOCKED — cannot proceed.')
+            self.bus.emit('pipeline_complete', status='blocked',
+                          reason='DatasetExaminer blocked')
             return {'status': 'blocked', 'personas': None, 'run_history': run_history}
 
         run_history.append({
@@ -516,7 +553,21 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 )
             except RuntimeError as e:
                 print(f'\n[Orchestrator] FeatureEngineer BLOCKED: {e}')
+                self.bus.emit('pipeline_complete', status='blocked',
+                              reason=f'FeatureEngineer blocked: {e}')
                 return {'status': 'blocked', 'personas': None, 'run_history': run_history}
+
+        # ── Escalation thresholds (configurable) ───────────────────────────────
+        # NOTE: silhouette_target is read DYNAMICALLY inside the loop because the
+        # relax logic can lower it on the fly (state.silhouette_target_override).
+        config_silhouette_target = float(self.config.get('silhouette_target', 0.5))
+        max_reselect_failures = int(self.config.get('max_reselect_failures', 3))
+        max_relax_failures = int(self.config.get('max_relax_failures', 5))
+
+        def _current_silhouette_target() -> float:
+            return state.silhouette_target_override \
+                if state.silhouette_target_override is not None \
+                else config_silhouette_target
 
         # ── Main pipeline loop ─────────────────────────────────────────────────
         while state.total_iterations < max_total_iterations:
@@ -525,6 +576,52 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             print(f'\n{"─"*65}')
             print(f'ITERATION {iteration} / {max_total_iterations}')
             print(f'{"─"*65}')
+            self.bus.emit(
+                'iteration_started',
+                iteration=iteration,
+                max_total_iterations=max_total_iterations,
+            )
+
+            # ── ESCALATION: re-engineer features from scratch ─────────────────
+            # Triggered when we've had N consecutive low-silhouette iterations.
+            if state.needs_feature_engineering and full_raw_df is not None:
+                print(f'\n[Orchestrator] ESCALATION — {state.consecutive_silhouette_failures} '
+                      f'failures in a row. Re-running FeatureEngineer from raw data + '
+                      f'asking Decision Maker for a fresh algorithm pick.')
+                _target = _current_silhouette_target()
+                self.bus.emit(
+                    'feature_re_engineering',
+                    consecutive_failures=state.consecutive_silhouette_failures,
+                    silhouette_target=_target,
+                )
+                # Clear stale tuning so the LLM picks a different algorithm
+                state.tuning_params['algorithm'] = None
+                state.tuning_params['feature_focus'] = (
+                    f"Previous engineered features gave silhouette < {_target} "
+                    f"across {state.consecutive_silhouette_failures} iterations — try a "
+                    f"fundamentally different set of features."
+                )
+                _t0 = time.perf_counter()
+                self._active_agent = 'FeatureEngineer'
+                try:
+                    features_df, fe_result = self.feature_engineer_agent.run(
+                        raw_df=full_raw_df,
+                        user_intent=state.user_intent or UserIntent(
+                            target_entity='entities',
+                            business_purpose='discover distinct groups in the data',
+                            dataset_path=raw_data_path or features_path,
+                        ),
+                        dataset_profile=state.dataset_profile,
+                        output_path='data/processed/engineered_features.parquet',
+                        iteration=iteration,
+                    )
+                    self._timings['FeatureEngineer'].append(time.perf_counter() - _t0)
+                    state.needs_feature_engineering = False
+                    state.consecutive_silhouette_failures = 0
+                    state.needs_feature_selection = True   # force fresh selection
+                except RuntimeError as e:
+                    print(f'[Orchestrator] FeatureEngineer escalation failed: {e}')
+                    state.needs_feature_engineering = False  # don't loop forever
 
             # Check for hard blocks from the bus
             if self.bus.has_hard_block():
@@ -587,6 +684,74 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
 
             # Track best silhouette regardless of whether clustering "passed"
             state.update_best_silhouette(cr, state.selected_features)
+
+            # ── Per-iteration PCA snapshot (for the Evidence tab visual) ───────
+            # Save a 2-D PCA projection of the selected-feature matrix coloured
+            # by cluster id. Skipped on reselect (no clustering produced).
+            if cr.cluster_labels is not None and cr.profiles is not None:
+                try:
+                    self._save_pca_projection(features_df, state.selected_features,
+                                              cr.cluster_labels, iteration, cr)
+                except Exception as _exc:  # noqa: BLE001
+                    print(f'  [Orchestrator] PCA snapshot skipped: {_exc}')
+
+            # ── HARD RULE: silhouette < target → request feature reselection ──
+            # Two tiered escalations:
+            #   - After 3 consecutive misses: re-engineer features from raw data
+            #     + ask Decision Maker for a fresh algorithm pick.
+            #   - After 5 consecutive misses: relax the target (bypass: -0.1
+            #     automatically; interactive: ask the user for the new bar).
+            _sil = cr.silhouette if cr.silhouette is not None else -1.0
+            _target_now = _current_silhouette_target()
+            if cr.action != 'reselect_features' and _sil < _target_now:
+                state.consecutive_silhouette_failures += 1
+                state.silhouette_fail_for_relax += 1
+                print(f'\n[Orchestrator] Silhouette {_sil:.3f} < target {_target_now:.2f} '
+                      f'(re-engineer counter {state.consecutive_silhouette_failures}/{max_reselect_failures} · '
+                      f'relax counter {state.silhouette_fail_for_relax}/{max_relax_failures}).')
+                self.bus.emit(
+                    'silhouette_target_missed',
+                    silhouette=_sil,
+                    target=_target_now,
+                    consecutive_failures=state.consecutive_silhouette_failures,
+                    max_failures=max_reselect_failures,
+                    relax_failures=state.silhouette_fail_for_relax,
+                    max_relax_failures=max_relax_failures,
+                )
+
+                # ── Tier B: at 5 failures, relax the target ─────────────────
+                if state.silhouette_fail_for_relax >= max_relax_failures:
+                    self._relax_silhouette_target(state, _target_now)
+
+                # ── Tier A: at 3 failures, re-engineer features ─────────────
+                if state.consecutive_silhouette_failures >= max_reselect_failures:
+                    state.needs_feature_engineering = True
+                    state.cluster_feedback = (
+                        f'{max_reselect_failures} consecutive iterations with silhouette '
+                        f'< target. Pick a completely different algorithm next round '
+                        f'based on the whole history.'
+                    )
+                else:
+                    new_params = self._ask_parameter_tuning(iteration, run_history, state)
+                    state.tuning_params.update(new_params)
+                    state.request_feature_reselection(
+                        f'silhouette {_sil:.3f} < target {_target_now:.2f}'
+                    )
+                run_history.append({
+                    'iteration': iteration,
+                    'stage': 'clustering',
+                    'action': 'reselect_features (silhouette<target)',
+                    'silhouette': _sil,
+                    'target': _target_now,
+                    'consecutive_failures': state.consecutive_silhouette_failures,
+                    'elapsed_s': round(self._timings['Clusterer'][-1], 1),
+                })
+                continue
+
+            # Successful clustering (silhouette ≥ target) — reset both counters
+            if cr.action != 'reselect_features':
+                state.consecutive_silhouette_failures = 0
+                state.silhouette_fail_for_relax = 0
 
             if cr.action == 'reselect_features':
                 print(f'\n[Orchestrator] Clustering → reselect features: {cr.reasoning}')
@@ -701,6 +866,13 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 print('\n[Orchestrator] Approved! Saving outputs...')
                 save_outputs(cr, nr, clf, self.bus)
                 self._print_timing_summary()
+                self.bus.emit(
+                    'pipeline_complete',
+                    status='success',
+                    n_clusters=len(nr.personas) if nr.personas else 0,
+                    silhouette=getattr(cr, 'silhouette', None),
+                    cv_f1_macro=clf.cv_f1_macro,
+                )
                 return {
                     'status': 'success',
                     'personas': nr.personas,
@@ -717,6 +889,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
 
             elif decision.action == 'quit':
                 print('\n[Orchestrator] Quit without saving.')
+                self.bus.emit('pipeline_complete', status='quit')
                 return {
                     'status': 'quit',
                     'personas': None,
@@ -752,6 +925,13 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 state.best_naming_result,
                 best_clf,
                 self.bus,
+            )
+            self.bus.emit(
+                'pipeline_complete',
+                status='max_iterations_reached',
+                n_clusters=len(best_personas) if best_personas else 0,
+                silhouette=getattr(state.best_clustering_result, 'silhouette', None),
+                cv_f1_macro=getattr(best_clf, 'cv_f1_macro', None),
             )
             return {
                 'status': 'max_iterations_reached',
@@ -796,6 +976,13 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             print('  Saving best-effort result...')
             save_outputs(best_cr, best_nr, best_clf, self.bus)
 
+            self.bus.emit(
+                'pipeline_complete',
+                status='best_effort',
+                n_clusters=len(best_nr.personas) if best_nr.personas else 0,
+                silhouette=state.best_silhouette_value,
+                cv_f1_macro=best_clf.cv_f1_macro,
+            )
             return {
                 'status': 'best_effort',
                 'personas': best_nr.personas,
@@ -813,6 +1000,11 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
 
         # ── Path C: no usable result at all ────────────────────────────────────
         print('\n[Orchestrator] No usable clustering result found after all iterations.')
+        self.bus.emit(
+            'pipeline_complete',
+            status='max_iterations_reached',
+            reason='no usable clustering result',
+        )
         return {
             'status': 'max_iterations_reached',
             'personas': None,
@@ -820,6 +1012,128 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             'timing': self._timing_dict(),
             'llm_usage': self._llm_usage_dict(),
         }
+
+    # ── Per-iteration PCA projection (Evidence tab visual) ────────────────────
+
+    def _save_pca_projection(self, features_df, selected_features, cluster_labels,
+                              iteration: int, cr) -> None:
+        """Append a 2-D PCA projection of this iteration's clustered data."""
+        import numpy as np
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+
+        cols = [c for c in selected_features if c in features_df.columns]
+        if not cols or len(features_df) == 0:
+            return
+        X = features_df[cols].fillna(0).to_numpy(dtype=float)
+        labels = np.asarray(list(cluster_labels))
+        if len(X) != len(labels):
+            return
+        # Sub-sample to keep the JSON small + browser snappy
+        MAX_POINTS = 1500
+        if len(X) > MAX_POINTS:
+            rng = np.random.default_rng(42)
+            idx = rng.choice(len(X), MAX_POINTS, replace=False)
+            X = X[idx]; labels = labels[idx]
+
+        try:
+            X_scaled = StandardScaler().fit_transform(X)
+            pca = PCA(n_components=2)
+            Z = pca.fit_transform(X_scaled)
+        except Exception:
+            return
+
+        points = [{'x': round(float(z[0]), 4),
+                   'y': round(float(z[1]), 4),
+                   'c': int(c)} for z, c in zip(Z, labels)]
+        out = pathlib.Path('outputs/pca_iterations.json')
+        try:
+            existing = json.loads(out.read_text(encoding='utf-8')) if out.exists() else []
+        except Exception:
+            existing = []
+        existing.append({
+            'iteration': iteration,
+            'algorithm': getattr(cr, 'algo_name', ''),
+            'silhouette': float(cr.silhouette) if cr.silhouette is not None else None,
+            'k': int(cr.n_leaf or 0),
+            'n_points': len(points),
+            'explained_variance_ratio': [round(float(v), 4) for v in pca.explained_variance_ratio_.tolist()],
+            'points': points,
+        })
+        try:
+            out.write_text(json.dumps(existing, ensure_ascii=False), encoding='utf-8')
+            print(f'  [Orchestrator] PCA snapshot saved (iter {iteration}, {len(points)} points)')
+        except OSError as e:
+            print(f'  [Orchestrator] PCA snapshot save failed: {e}')
+
+    # ── Adaptive silhouette target relaxation ──────────────────────────────────
+
+    def _relax_silhouette_target(self, state, current_target: float) -> None:
+        """After max_relax_failures consecutive misses, lower the bar.
+
+        - BYPASS mode: auto-drop by 0.1.
+        - INTERACTIVE mode: pause, wait for the user to type a new target via
+          the UI (POST /api/silhouette-target → outputs/pending_target_change.json).
+        Resets the relax counter either way.
+        """
+        from skills.orchestrator_bus import read_pipeline_mode
+        mode = read_pipeline_mode()
+        suggested = round(max(0.05, current_target - 0.1), 3)
+
+        if mode == 'interactive':
+            new_target = self._wait_for_target_change(current_target, suggested, state)
+        else:
+            new_target = suggested
+            print(f'  [Orchestrator] BYPASS — auto-lowering silhouette_target '
+                  f'{current_target:.2f} → {new_target:.2f}')
+
+        state.silhouette_target_override = float(new_target)
+        state.silhouette_fail_for_relax = 0
+        self.bus.emit(
+            'silhouette_target_changed',
+            previous=current_target,
+            new=new_target,
+            mode=mode,
+        )
+
+    def _wait_for_target_change(self, current_target: float, suggested: float, state) -> float:
+        """Block until the user submits a new silhouette_target via /api/silhouette-target."""
+        import pathlib, time as _time
+        pending = pathlib.Path('outputs/pending_target_change.json')
+        try:
+            pending.unlink(missing_ok=True)
+        except OSError:
+            pass
+        self.bus.emit(
+            'awaiting_silhouette_relaxation',
+            current_target=current_target,
+            suggested_target=suggested,
+            consecutive_failures=state.silhouette_fail_for_relax,
+            timeout_s=300,
+        )
+        print(f'\n  [INTERACTIVE MODE] {state.silhouette_fail_for_relax} silhouette '
+              f'misses in a row. Pipeline paused for you to set a new target.')
+        print(f'  [INTERACTIVE MODE] Current target: {current_target:.2f} · '
+              f'suggested: {suggested:.2f}.')
+
+        deadline = _time.time() + 300
+        try:
+            while _time.time() < deadline:
+                if pending.exists():
+                    try:
+                        payload = json.loads(pending.read_text(encoding='utf-8'))
+                        v = float(payload.get('target'))
+                        if 0.05 <= v <= 1.0:
+                            try: pending.unlink(missing_ok=True)
+                            except OSError: pass
+                            return v
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        pass
+                _time.sleep(0.6)
+        except KeyboardInterrupt:
+            pass
+        print(f'  [INTERACTIVE MODE] Timed out — auto-lowering to {suggested:.2f}.')
+        return suggested
 
     # ── Dynamic parameter tuning ───────────────────────────────────────────────
 
@@ -874,8 +1188,28 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 f"k={k}:{v:.3f}" for k, v in sorted(ks.items())
             )
 
+        # ── Adaptive learning: prepend persistent user feedback ──────────────
+        # Same source PersonaNamer reads (outputs/user_feedback_log.jsonl).
+        # Surfaces global rules and high-priority overrides so the Decision
+        # Maker's parameter tuning respects choices the user made in the UI.
+        prefs_preamble = ''
+        try:
+            from ui.feedback_store import build_preferences_block
+            prefs_block = build_preferences_block(
+                types=('global_rule', 'manual_override', 'merge', 'naming_hint'),
+            )
+            if prefs_block:
+                prefs_preamble = (
+                    prefs_block
+                    + 'These are durable user preferences from prior UI sessions — '
+                    + 'honour them when tuning.\n\n'
+                )
+                print(f'  [Orchestrator] Injected user-preference block into tuning prompt.')
+        except Exception as _exc:  # noqa: BLE001
+            print(f'  [Orchestrator] (no UI feedback memory loaded: {_exc})')
+
         cur = state.tuning_params
-        prompt = f"""You are orchestrating a customer-clustering pipeline. Iteration {iteration} just failed.
+        prompt = prefs_preamble + f"""You are orchestrating a customer-clustering pipeline. Iteration {iteration} just failed.
 
 Current parameters:
   vif_threshold  : {cur.get('vif_threshold', 10.0)}   (higher = keep more correlated features; range 5–25)

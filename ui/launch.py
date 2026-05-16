@@ -31,9 +31,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if not PERSONAS_PATH.exists():
-        print(f'ERROR: {PERSONAS_PATH} not found.')
-        print('       Run `python run_pipeline.py` first to produce personas.')
-        raise SystemExit(1)
+        print(f'[ui] {PERSONAS_PATH} not found — UI will show the live pipeline view.')
+        print('     Once `python run_pipeline.py` finishes, the cluster grid appears here.')
 
     if not args.no_open:
         _open_browser(f'http://{args.host}:{args.port}/')

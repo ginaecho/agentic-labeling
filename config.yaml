@@ -53,6 +53,16 @@ max_cluster_size_pct: 0.40   # fraction — split any cluster larger than this s
 sub_n_clusters: 3            # how many sub-clusters to create when splitting
 max_depth: 2                 # max rounds of splitting (0 = disabled, 1 = one round, ...)
 
+# ── Escalation rules ─────────────────────────────────────────────────────────
+# After clustering, if silhouette < `silhouette_target` the pipeline loops back
+# to feature selection. After this happens `max_reselect_failures` times in a
+# row, the pipeline ESCALATES: it re-runs FeatureEngineer from raw data AND
+# asks the Decision Maker to pick a completely different clustering algorithm
+# based on the whole failure history.
+silhouette_target: 0.5        # starts here; relaxed by -0.1 every max_relax_failures misses
+max_reselect_failures: 3      # consecutive misses before re-engineering features
+max_relax_failures: 3         # consecutive misses before lowering the silhouette_target
+
 # ── LLM Persona Descriptions ──────────────────────────────────────────────────
 
 # Tone for all Claude-generated persona names, descriptions, and explanations.

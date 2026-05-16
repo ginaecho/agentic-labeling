@@ -18,12 +18,17 @@ back to defaults from config and reports doubts="running with defaults".
 """
 from __future__ import annotations
 
+import json
+import pathlib
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
 from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 
 DEFAULT_DATASET_PATH = "data/raw/fraudTrain.csv"
+PENDING_INTENT_PATH = pathlib.Path("outputs/pending_intent.json")
+UI_INTENT_TIMEOUT_S = 600   # 10 min — UI users have plenty of time to fill the form
 
 
 @dataclass
@@ -59,15 +64,25 @@ class UserInputAgent:
 
     def run(self, iteration: int = 1) -> UserIntent:
         """
-        Interactively collect the user's clustering intent.
+        Collect the user's clustering intent.
 
-        Returns
-        -------
-        UserIntent dataclass with captured values.
+        Resolution order:
+        1. If `outputs/pending_intent.json` exists, consume it (UI-driven flow).
+        2. Otherwise emit `awaiting_intent` event and wait up to UI_INTENT_TIMEOUT_S
+           for the UI to write that file.
+        3. While waiting, also accept stdin (terminal fallback). First source wins.
         """
         print("\n" + "=" * 65)
         print("AGENTIC CLUSTERING PIPELINE — Intent Collection")
         print("=" * 65)
+
+        # ── UI-first path: poll for pending_intent.json from the browser ─────
+        ui_intent = self._wait_for_ui_intent()
+        if ui_intent is not None:
+            self._announce(ui_intent)
+            return ui_intent
+
+        # ── Terminal fallback (original interactive prompts) ─────────────────
         print("Before we begin, please answer a few questions.")
         print("(Press Enter to skip optional questions and use defaults.)\n")
 
@@ -225,6 +240,146 @@ class UserInputAgent:
         return intent
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _wait_for_ui_intent(self) -> Optional[UserIntent]:
+        """
+        Wait for the UI to write outputs/pending_intent.json. Returns the parsed
+        UserIntent on success, or None if the user appears to be running headless
+        (no UI server reachable, or timeout / interrupt while waiting).
+
+        The strategy:
+          - If the file already exists at start, consume it immediately.
+          - Else announce 'awaiting_intent' on the bus and poll for up to
+            UI_INTENT_TIMEOUT_S, sleeping in short ticks so Ctrl-C is responsive.
+        """
+        # If a fresh intent file already exists (e.g. saved by the user before
+        # the pipeline reached this point), consume it.
+        if PENDING_INTENT_PATH.exists():
+            return self._consume_intent_file()
+
+        # No live UI server is detectable from the agent's side; do a soft check
+        # by simply emitting the event and waiting. If no file ever appears, we
+        # fall through to the terminal prompts.
+        try:
+            self.bus.emit(
+                "awaiting_intent",
+                fields=[
+                    "target_entity", "business_purpose", "dataset_path",
+                    "constraints", "n_clusters_requested", "must_have_clusters",
+                ],
+                default_dataset_path=self.default_dataset_path,
+                timeout_s=UI_INTENT_TIMEOUT_S,
+            )
+        except Exception:
+            return None
+
+        print(f"\n  [UserInput] Waiting up to {UI_INTENT_TIMEOUT_S}s for intent from the UI form")
+        print(f"  [UserInput] (open http://127.0.0.1:5057/ and submit the intent form,")
+        print(f"  [UserInput]  or press Ctrl-C to fall back to terminal prompts)")
+
+        deadline = time.time() + UI_INTENT_TIMEOUT_S
+        try:
+            while time.time() < deadline:
+                if PENDING_INTENT_PATH.exists():
+                    return self._consume_intent_file()
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            print("\n  [UserInput] Interrupted — falling back to terminal prompts.")
+            return None
+
+        print(f"\n  [UserInput] No UI intent received within {UI_INTENT_TIMEOUT_S}s — terminal prompts.")
+        return None
+
+    def _consume_intent_file(self) -> Optional[UserIntent]:
+        try:
+            payload = json.loads(PENDING_INTENT_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"  [UserInput] Could not read pending_intent.json: {exc}")
+            try:
+                PENDING_INTENT_PATH.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
+
+        # Best-effort: delete the file so a stale intent isn't re-consumed next run
+        try:
+            PENDING_INTENT_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        target = str(payload.get("target_entity") or "").strip() or "customers"
+        purpose = str(payload.get("business_purpose") or "").strip()
+        dataset = str(payload.get("dataset_path") or "").strip() or self.default_dataset_path
+        constraints = str(payload.get("constraints") or "").strip()
+        n_req = payload.get("n_clusters_requested")
+        try:
+            n_req = int(n_req) if n_req not in (None, "", "null") else None
+            if n_req is not None and n_req < 2:
+                n_req = None
+        except (TypeError, ValueError):
+            n_req = None
+        must_have_raw = payload.get("must_have_clusters") or []
+        if isinstance(must_have_raw, str):
+            must_have = [t.strip() for t in must_have_raw.split(",") if t.strip()]
+        elif isinstance(must_have_raw, list):
+            must_have = [str(t).strip() for t in must_have_raw if str(t).strip()]
+        else:
+            must_have = []
+
+        return UserIntent(
+            target_entity=target,
+            business_purpose=purpose,
+            dataset_path=dataset,
+            constraints=constraints,
+            n_clusters_requested=n_req,
+            must_have_clusters=must_have,
+        )
+
+    def _announce(self, intent: "UserIntent", iteration: int = 0) -> None:
+        """Print the captured intent and report success to the orchestrator bus."""
+        print("\n" + "─" * 65)
+        print("Captured intent (from UI):")
+        print(f"  Target entity    : {intent.target_entity}")
+        print(f"  Business purpose : {intent.business_purpose}")
+        print(f"  Dataset path     : {intent.dataset_path}")
+        if intent.constraints:
+            print(f"  Constraints      : {intent.constraints}")
+        if intent.n_clusters_requested is not None:
+            print(f"  Clusters wanted  : {intent.n_clusters_requested} (fixed)")
+        else:
+            print(f"  Clusters wanted  : data-driven (auto-select)")
+        if intent.must_have_clusters:
+            print(f"  Must-have types  : {', '.join(intent.must_have_clusters)}")
+        print("─" * 65)
+
+        self.bus.report(OrchestratorMessage(
+            agent="UserInput",
+            iteration=iteration,
+            status="success",
+            what_was_done=(
+                f"Collected intent from UI: target='{intent.target_entity}', "
+                f"purpose='{intent.business_purpose[:60]}'"
+            ),
+            what_was_not_done="Did not validate that the dataset file actually exists.",
+            doubts="",
+            issues=[],
+            metrics={
+                "target_entity": intent.target_entity,
+                "purpose_length": len(intent.business_purpose),
+                "has_constraints": bool(intent.constraints),
+                "n_clusters_requested": intent.n_clusters_requested,
+                "must_have_clusters": intent.must_have_clusters,
+            },
+            recommendation="proceed",
+            context={"user_intent": {
+                "target_entity": intent.target_entity,
+                "business_purpose": intent.business_purpose,
+                "dataset_path": intent.dataset_path,
+                "constraints": intent.constraints,
+                "n_clusters_requested": intent.n_clusters_requested,
+                "must_have_clusters": intent.must_have_clusters,
+            }},
+        ))
 
     def _prompt(self, question: str, hint: str, default: str) -> str:
         """

@@ -12,6 +12,7 @@ that has just Flask installed — only "Regenerate with hint" and
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import pathlib
@@ -48,10 +49,36 @@ def make_persona_agent():
     from skills.orchestrator_bus import OrchestratorBus
     from agents.persona_namer import PersonaNamingAgent
 
-    bus = OrchestratorBus()
+    # CRITICAL: pass event_log_path=None so this transient UI-side bus does NOT
+    # truncate outputs/pipeline_events.jsonl or wipe last_upload_preview.json
+    # on init. Those belong to the running pipeline; this bus is just a thin
+    # LLM dispatcher for the UI's regenerate / merge / explain endpoints.
+    bus = OrchestratorBus(event_log_path=None)
     client = anthropic.Anthropic()
 
-    def _handler(agent: str, purpose: str, prompt: str, max_tokens: int = 1024) -> str:
+    # Append events to the pipeline's live log so the UI's cost panel + chat
+    # bubbles still see the LLM calls this UI bus makes (e.g. explain calls).
+    _live_event_log = pathlib.Path('outputs/pipeline_events.jsonl')
+
+    def _emit_event(event: str, **payload):
+        if not _live_event_log.exists():
+            return
+        from datetime import datetime, timezone
+        rec = {'event': event,
+               'ts': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+               **payload}
+        try:
+            with _live_event_log.open('a', encoding='utf-8') as f:
+                f.write(json.dumps(rec, ensure_ascii=False, default=str) + '\n')
+        except OSError:
+            pass
+
+    def _handler(agent: str, purpose: str, prompt: str, max_tokens: int = 1024,
+                 category: str = 'pipeline') -> str:
+        import time as _time
+        _emit_event('llm_call_started', agent=agent, purpose=purpose,
+                    prompt_chars=len(prompt), prompt=prompt, category=category)
+        t0 = _time.perf_counter()
         resp = client.messages.create(
             model=_MODEL,
             max_tokens=max_tokens,
@@ -63,6 +90,13 @@ def make_persona_agent():
             ),
             messages=[{'role': 'user', 'content': prompt}],
         )
+        elapsed = round(_time.perf_counter() - t0, 2)
+        _emit_event('llm_call_finished', agent=agent, purpose=purpose,
+                    input_tokens=resp.usage.input_tokens,
+                    output_tokens=resp.usage.output_tokens,
+                    time_s=elapsed,
+                    response=resp.content[0].text,
+                    category=category)
         return resp.content[0].text
 
     bus.set_llm_handler(_handler)

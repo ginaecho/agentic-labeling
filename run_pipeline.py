@@ -111,7 +111,51 @@ import argparse
 _parser = argparse.ArgumentParser(add_help=False)
 _parser.add_argument('--data', type=str, default=None,
                      help='Path to input CSV/parquet (overrides config.yaml)')
+_parser.add_argument('--no-ui', action='store_true',
+                     help='Skip launching the interactive UI (headless mode)')
+_parser.add_argument('--ui-port', type=int, default=5057,
+                     help='Port for the interactive UI (default 5057)')
 _args, _ = _parser.parse_known_args()
+
+# ── Launch the interactive UI in a background thread ─────────────────────────
+# The pipeline keeps running in the foreground; the UI streams live agent
+# activity over Server-Sent Events and auto-switches to the cluster grid
+# when the pipeline completes. Use --no-ui for headless runs.
+if not _args.no_ui:
+    import threading
+    import webbrowser
+
+    def _launch_ui_background(host: str, port: int) -> None:
+        try:
+            from ui.app import app as _ui_app
+        except Exception as _exc:  # noqa: BLE001
+            print(f'[run_pipeline] Could not import UI ({_exc}). Continuing headless.')
+            return
+
+        def _serve():
+            try:
+                _ui_app.run(host=host, port=port, debug=False,
+                            use_reloader=False, threaded=True)
+            except Exception as _serve_exc:  # noqa: BLE001
+                print(f'[run_pipeline] UI server stopped: {_serve_exc}')
+
+        t = threading.Thread(target=_serve, name='ui-server', daemon=True)
+        t.start()
+
+        url = f'http://{host}:{port}/'
+        print(f'[run_pipeline] Launching live UI at {url} (use --no-ui to disable)')
+
+        def _open_when_ready():
+            time.sleep(1.2)
+            try:
+                webbrowser.open(url)
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=_open_when_ready, name='ui-opener',
+                         daemon=True).start()
+
+    _launch_ui_background('127.0.0.1', _args.ui_port)
 
 _config_data_path = config.get('dataset_path')
 _raw_csv = pathlib.Path('data/raw/fraudTrain.csv')
@@ -573,7 +617,19 @@ print(f'    pipeline_run_*.txt     — full terminal log from this run')
 print(f'    agents_conversation.txt — agent status messages + full LLM prompts/responses')
 print('█' * W)
 
-print('\n  Fine-tune these personas interactively in the browser:')
-print('      python -m ui.launch')
+if _args.no_ui:
+    print('\n  Fine-tune these personas interactively in the browser:')
+    print('      python -m ui.launch')
+else:
+    print(f'\n  The interactive UI is still running at http://127.0.0.1:{_args.ui_port}/')
+    print('  Edit personas, regenerate names, merge clusters, or add global rules.')
 print('  (edits + suggestions are logged to outputs/user_feedback_log.jsonl')
 print('   and replayed to the Decision Maker on every subsequent run.)\n')
+
+if not _args.no_ui:
+    print('  Press Ctrl-C to stop the UI server and exit.')
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print('\n[run_pipeline] Shutting down UI. Bye!')
