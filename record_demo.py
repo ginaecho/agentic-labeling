@@ -17,11 +17,13 @@ Usage
     python record_demo.py
 
 Outputs land in `recordings/`:
-    recordings/graph.webm
-    recordings/convos.webm
-    recordings/outputs.webm
-    recordings/evidence.webm
-    recordings/tokens.webm
+    recordings/intent.webm     ← the user filling + submitting the intent form
+    recordings/graph.webm      ← architecture graph lighting up agents
+    recordings/log.webm        ← streaming text log of every pipeline event
+    recordings/convos.webm     ← agent ↔ Decision Maker chat bubbles typing live
+    recordings/outputs.webm    ← right-column per-agent computed results
+    recordings/evidence.webm   ← Data & evidence tab updating per iteration
+    recordings/tokens.webm     ← 3-ledger Tokens & cost panel ticking up
 
 Notes
 -----
@@ -41,7 +43,8 @@ import time
 import requests
 
 BASE_URL = "http://127.0.0.1:5057"
-REGIONS = ["graph", "convos", "outputs", "evidence", "tokens"]
+# Order matters for tiling: intent first (user fills it), then live views
+REGIONS = ["intent", "graph", "log", "convos", "outputs", "evidence", "tokens"]
 VIEWPORT = {"width": 1280, "height": 720}
 OUT_DIR = pathlib.Path("recordings")
 

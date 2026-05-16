@@ -635,6 +635,41 @@ body.demo-tokens #cluster-grid,
 body.demo-tokens #evidence-view { display: none !important; }
 body.demo-tokens #cost-panel { padding: 24px; }
 
+/* intent-form-only focus — record the user filling the intent form */
+body.demo-intent .col-mid > *:not(#intent-form-wrap),
+body.demo-intent .col-right,
+body.demo-intent #cluster-grid,
+body.demo-intent #evidence-view { display: none !important; }
+body.demo-intent #intent-form-wrap {
+  display: block !important;   /* override the JS-managed `.hidden` once form is closed */
+  margin: 30px auto;
+  max-width: 800px;
+  padding: 30px;
+}
+body.demo-intent #intent-form-wrap.hidden::before {
+  content: '✓ Intent submitted — switch to another recording window to watch the pipeline';
+  display: block;
+  text-align: center; padding: 40px;
+  background: var(--panel); border: 1px dashed var(--good);
+  border-radius: 12px; color: var(--good);
+  font-size: 15px;
+}
+
+/* agent-log-only focus — streaming text of every pipeline event */
+body.demo-log .col-mid > *:not(#live-log):not(.section-h),
+body.demo-log .col-right,
+body.demo-log #intent-form-wrap,
+body.demo-log #cluster-grid,
+body.demo-log #evidence-view { display: none !important; }
+body.demo-log #live-log {
+  max-height: 100vh; height: calc(100vh - 60px);
+  padding: 20px 30px;
+}
+body.demo-log #live-log-pre {
+  max-height: calc(100vh - 100px) !important;
+  font-size: 13px !important;
+}
+
 /* ── Evidence view ──────────────────────────────────────────────────────── */
 .evidence-view {
   flex: 1;
