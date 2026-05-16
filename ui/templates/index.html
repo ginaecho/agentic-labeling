@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cluster Persona Studio</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">⬢</div>
+    <div>
+      <div class="title">Cluster Persona Studio</div>
+      <div class="subtitle">Fine-tune named clusters · feed changes back to the agent system</div>
+    </div>
+  </div>
+  <div class="summary" id="summary">loading…</div>
+  <div class="actions">
+    <button id="merge-btn" class="ghost" disabled>Merge selected (0)</button>
+    <button id="global-rule-btn" class="ghost">+ Global rule</button>
+    <button id="memory-btn" class="ghost">Memory</button>
+  </div>
+</header>
+
+<main>
+  <section id="cluster-grid" class="grid"></section>
+
+  <aside id="detail-panel" class="panel hidden">
+    <button class="close" id="close-detail">×</button>
+    <div id="detail-content"></div>
+  </aside>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Memory drawer (feedback log + preview) -->
+<div id="memory-drawer" class="drawer hidden">
+  <div class="drawer-head">
+    <h2>Adaptive memory</h2>
+    <button class="close" id="close-memory">×</button>
+  </div>
+  <p class="muted">
+    Every change you make is stored here and surfaced to the Decision Maker
+    on every future pipeline run as <em>USER PREFERENCES</em>. Set priority
+    to control how strongly the agents weight each one.
+  </p>
+  <div id="feedback-list"></div>
+  <h3>Preview of what the agents will see next run</h3>
+  <pre id="prefs-preview" class="preview"></pre>
+</div>
+
+<!-- Global rule modal -->
+<div id="global-modal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Add a global rule</h2>
+    <p class="muted">
+      Applies to every cluster on every future pipeline run. Examples:
+      "Never use the word 'shopper'", "Always reference dollar amounts",
+      "Personas should be 2-3 words max".
+    </p>
+    <textarea id="global-rule-text" rows="4" placeholder="Write the rule…"></textarea>
+    <div class="modal-actions">
+      <select id="global-rule-priority">
+        <option value="high" selected>High priority</option>
+        <option value="medium">Medium priority</option>
+        <option value="low">Low priority</option>
+      </select>
+      <button id="global-rule-cancel" class="ghost">Cancel</button>
+      <button id="global-rule-save" class="primary">Save rule</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

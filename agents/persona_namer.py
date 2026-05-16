@@ -237,6 +237,24 @@ class PersonaNamingAgent:
 
         prompt = build_all_clusters_prompt(profiles, lineage, tone_instr)
 
+        # ── Adaptive learning: prepend persistent user feedback ────────────
+        # Every change the user made in the interactive UI was logged to
+        # outputs/user_feedback_log.jsonl. We surface high-/medium-priority
+        # entries here so the Decision Maker honours the user's past
+        # preferences on every future run.
+        try:
+            from ui.feedback_store import build_preferences_block
+            prefs_block = build_preferences_block(
+                types=('manual_override', 'naming_hint', 'global_rule', 'merge'),
+            )
+            if prefs_block:
+                prompt = prefs_block + '\n' + prompt
+                print(f'  [PersonaNamer] Injected {prefs_block.count(chr(10))} lines of '
+                      f'user preferences from prior UI feedback.')
+        except Exception as _exc:  # noqa: BLE001
+            # Memory injection is best-effort; never block the pipeline on it
+            print(f'  [PersonaNamer] (no UI feedback memory loaded: {_exc})')
+
         # Append must-have constraint to prompt if set
         if must_have:
             must_have_str = ', '.join(f'"{t}"' for t in must_have)

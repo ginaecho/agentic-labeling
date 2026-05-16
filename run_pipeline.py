@@ -572,3 +572,8 @@ print(f'    classifier_metrics.json — CV scores + feature importances')
 print(f'    pipeline_run_*.txt     — full terminal log from this run')
 print(f'    agents_conversation.txt — agent status messages + full LLM prompts/responses')
 print('█' * W)
+
+print('\n  Fine-tune these personas interactively in the browser:')
+print('      python -m ui.launch')
+print('  (edits + suggestions are logged to outputs/user_feedback_log.jsonl')
+print('   and replayed to the Decision Maker on every subsequent run.)\n')
