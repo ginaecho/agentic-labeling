@@ -166,6 +166,17 @@ def save_outputs(cluster_result, naming_result, classifier_result, bus: Orchestr
         json.dump(combined, f, indent=2)
     print('  Saved outputs/personas.json')
 
+    if cluster_result.cluster_labels is not None:
+        try:
+            import pandas as _pd
+            _labels = cluster_result.cluster_labels
+            _df = _pd.DataFrame({'row_index': range(len(_labels)),
+                                  'cluster_id': list(_labels)})
+            _df.to_csv('outputs/cluster_labels.csv', index=False)
+            print('  Saved outputs/cluster_labels.csv')
+        except Exception as _e:
+            print(f'  [warn] could not save cluster_labels.csv: {_e}')
+
     metrics = {
         'cv_accuracy':     classifier_result.cv_accuracy,
         'cv_f1_macro':     classifier_result.cv_f1_macro,

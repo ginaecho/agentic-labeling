@@ -140,7 +140,19 @@ _parser.add_argument('--no-ui', action='store_true',
                      help='Skip launching the interactive UI (headless mode)')
 _parser.add_argument('--ui-port', type=int, default=5057,
                      help='Port for the interactive UI (default 5057)')
+_parser.add_argument('--max-iterations', type=int, default=10,
+                     help='Maximum inner pipeline iterations (default 10)')
+_parser.add_argument('--bypass', action='store_true',
+                     help='No prompts. Synthesize user intent from --intent-* '
+                          'flags and auto-approve. Implies --no-ui.')
+_parser.add_argument('--intent-target', type=str, default='customers',
+                     help='Bypass: target entity for clustering')
+_parser.add_argument('--intent-purpose', type=str,
+                     default='discover spending personas for marketing',
+                     help='Bypass: business purpose')
 _args, _ = _parser.parse_known_args()
+if _args.bypass:
+    _args.no_ui = True
 
 # ── Launch the interactive UI in a background thread ─────────────────────────
 # The pipeline keeps running in the foreground; the UI streams live agent
@@ -203,10 +215,24 @@ else:
 
 # ── Run pipeline ──────────────────────────────────────────────────────────────
 orchestrator = Orchestrator(config)
+
+_bypass_intent = None
+if _args.bypass:
+    from agents.state import UserIntent
+    _bypass_intent = UserIntent(
+        target_entity=_args.intent_target,
+        business_purpose=_args.intent_purpose,
+        dataset_path=_default_features_path,
+        constraints='',
+    )
+    print(f'[run_pipeline] BYPASS mode — synthesized intent: '
+          f'target={_args.intent_target!r}  purpose={_args.intent_purpose!r}')
+
 result = orchestrator.run(
     features_path=_default_features_path,
-    max_total_iterations=10,
-    skip_user_input=False,   # UserInputAgent will prompt for your clustering intent
+    max_total_iterations=_args.max_iterations,
+    skip_user_input=bool(_args.bypass),
+    user_intent=_bypass_intent,
 )
 
 # ── Bail out if the pipeline was blocked or quit before saving outputs ─────────
