@@ -36,11 +36,11 @@ The UI streams every agent step, LLM call, gate decision, and escalation over Se
 
 **Named Clusters tab + Adaptive Memory** — every cluster is an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next run. Every rename, merge, hint, and chat conclusion lands in the **Adaptive Memory drawer** (right side of the topbar) as a prioritised rule; the next pipeline run reads `outputs/user_feedback_log.jsonl` and the Decision Maker prompts adapt — that is the adaptive-learning loop, made literal.
 
-<video src="https://github.com/ginaecho/Agentic_Labelling/raw/main/recordings/named_cluster.mp4" controls muted playsinline width="900"></video>
+![Named Clusters tab — chat with an agent, conclude, save guidance to Adaptive Memory](docs/screenshots/01_named_clusters.gif)
 
 **Data & Evidence tab** — per-iteration 2-D PCA projection of the clustered data, with the orchestrator's adaptive-escalation warning surfaced in line: *"Silhouette=0.142 < target 0.40 — orchestrator will reselect features (or escalate after 3 consecutive misses)"*.
 
-<video src="https://github.com/ginaecho/Agentic_Labelling/raw/main/recordings/data_evidence.mp4" controls muted playsinline width="900"></video>
+![Data & Evidence tab — per-iteration PCA projection with adaptive-escalation warnings](docs/screenshots/02_data_evidence.gif)
 
 ---
 
