@@ -70,3 +70,24 @@ Written to `outputs/` after each run:
 - `user_feedback_log.jsonl` — rules from the UI that adapt the next run
 
 If 10 iterations finish without any result passing all gates, the pipeline falls into **best-effort mode**: it takes the highest-silhouette clustering, force-names it, runs the classifier, and saves with `status='best_effort'` so a usable result is always delivered.
+
+---
+
+## Experiment branch — adaptive learning without a human
+
+On `feat/experiments-judges`: replaces the human reviewer with **three blind judge agents** that critique each run, an **arbiter** that decides which critiques become adaptive rules, **LLM compaction** of those rules before injection, and a **convergence vs human-review** branch at exit. See `experiments/README.md` for the full design.
+
+```bash
+git checkout feat/experiments-judges
+experiments/run_detached.sh --reset-feedback   # 3-hour, detached (macOS-safe)
+```
+
+What each component does, in one line:
+
+- `experiments/judges.py` — 3 judges (statistical / business / domain) with **asymmetric input views**: statistical sees only anonymous "Group A/B/…" + numbers, business sees only names + descriptions, domain sees names + ratios + raw row samples. Runtime test (`test_blindness.py`) verifies the 12 blindness + asymmetry invariants in ~1s.
+- `experiments/arbiter.py` — single-turn accept/reject. Accepted critiques land in `outputs/user_feedback_log.jsonl` with `provenance='agent'`, `priority='medium'`, `source='judge:<name>'`.
+- `experiments/dedup_prefs.py` — LLM compaction before PersonaNamer injection, cached by content-hash. Only fires when `EXPERIMENT_DEDUP_PREFS=1`, so the live UI is untouched.
+- `experiments/convergence_review.py` — on convergence (ARI ≥ 0.90 × 3 runs), Decision Maker scores each rule **useful / neutral / noise** and promotes/demotes accordingly.
+- `experiments/human_review.py` — on no-convergence, writes `human_review.md` (rules grouped by source + metric trajectory + KEEP/REVISE/DROP checkboxes). `apply` mode re-imports the edited file, stamping kept/revised rules `provenance='human'` `priority='high'`.
+
+The full loop is verifiable in 5 seconds and $0 of API via `python -m experiments.test_persona_namer_consumes_feedback` — proves the rules actually land inside the next PersonaNamer prompt.
