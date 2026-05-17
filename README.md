@@ -20,8 +20,45 @@ The system described here automates the entire loop — feature engineering, sel
 
 The pipeline is driven by **`run_pipeline.py`**. Seven specialised agents plus a Decision Maker form a feedback loop. Every quality gate can push the pipeline backward; it only moves forward when all gates pass (or the user approves):
 
-<img width="1097" height="592" alt="image" src="https://github.com/user-attachments/assets/97aa473b-0055-452b-bb87-448cb1d701fb" />
+```mermaid
+flowchart TB
+    subgraph BUS["**OrchestratorBus** — sole LLM gateway (logs every prompt + response)"]
+        direction LR
+        DM(("Decision Maker<br/>LLM API<br/>Claude / GPT / Gemini"))
+    end
 
+    U["⓪ UserInputAgent<br/>captures clustering intent"]
+    E["① DatasetExaminerAgent<br/>profile + feature group suggestions"]
+    FE["② FeatureEngineerAgent<br/>entity-level features from raw events"]
+    FS["③ FeatureSelectionAgent<br/>PCA + Autoencoder + VIF gate + LLM pick"]
+    CL["④ ClusteringAgent<br/>auto algo + silhouette k-opt + deepening loop"]
+    PN["⑤ PersonaNamingAgent<br/>names clusters · Clarity Gate"]
+    CF["⑥ ClassifierAgent<br/>5-fold CV · macro-F1 ≥ 0.70 gate"]
+    HC{{"Human Checkpoint<br/>approve · recluster · reselect · quit"}}
+    SAVE[/"Save outputs to outputs/"/]
+
+    U --> E --> FE --> FS --> CL --> PN --> CF --> HC --> SAVE
+
+    PN -. clarity gate fails<br/>recluster .-> CL
+    CF -. F1 < 0.70<br/>reselect features .-> FS
+    CF -. F1 < 0.70<br/>recluster .-> CL
+    CL -. silhouette < target<br/>reselect features .-> FS
+    CL -. 3 consecutive misses<br/>re-engineer features .-> FE
+    HC -. user: recluster .-> CL
+    HC -. user: reselect features .-> FS
+
+    BUS <-.-> U & E & FE & FS & CL & PN & CF
+
+    classDef agent fill:#1a2332,stroke:#4a9eff,stroke-width:2px,color:#fff
+    classDef gate fill:#2d1a32,stroke:#c44aff,stroke-width:2px,color:#fff
+    classDef human fill:#1a3320,stroke:#4aff9e,stroke-width:2px,color:#fff
+    classDef save fill:#332a1a,stroke:#ffc44a,stroke-width:2px,color:#fff
+    class U,E,FE,FS,CL,PN,CF agent
+    class HC human
+    class SAVE save
+```
+
+Solid arrows = the forward path; dotted arrows = the feedback loops that push the pipeline backward. Every backward arrow is gated by a measurable threshold (Clarity Gate confidence, F1 macro, silhouette target) — the Decision Maker proposes new parameters for the next attempt and the loop closes around the OrchestratorBus.
 
 ### What each agent does
 
@@ -199,17 +236,17 @@ After a successful (or best-effort) run:
 
 `run_pipeline.py` boots a live web UI in a background thread and auto-opens it in your browser (use `--no-ui` for headless, `--ui-port 5090` to change port). The UI is fused with the pipeline through an event bus: every agent step, LLM call, gate decision, and escalation streams over Server-Sent Events to the browser in real time.
 
+**Named Clusters tab** — every cluster becomes an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next pipeline run.
+
 <img src="docs/screenshots/01_per_cluster_chat_and_save.png" alt="Named Clusters tab — persona cards with per-cluster multi-turn chat and Conclude → propose action panel" width="900"/>
 
-*Named Clusters tab — every cluster becomes an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next pipeline run.*
+**Data & Evidence tab** — per-iteration 2-D PCA projection of the clustered data, with the orchestrator's adaptive-escalation warning surfaced in line: *"Silhouette=0.142 < target 0.40 — orchestrator will reselect features (or escalate after 3 consecutive misses)"*.
 
 <img src="docs/screenshots/02_pca_with_adaptive_escalation.png" alt="Data & Evidence tab — per-iteration PCA projection plus orchestrator warning about silhouette miss" width="900"/>
 
-*Data & Evidence tab — per-iteration 2-D PCA projection of the clustered data, with the orchestrator's adaptive-escalation warning surfaced in line: "Silhouette=0.142 < target 0.40 — orchestrator will reselect features (or escalate after 3 consecutive misses)".*
+**Adaptive Memory drawer** — every rename, merge, hint, and chat conclusion lands here as a prioritised rule. The next pipeline run reads this file and the Decision Maker prompts adapt accordingly — that is the "adaptive learning" loop, made literal.
 
 <img src="docs/screenshots/03_adaptive_memory_drawer.png" alt="Adaptive memory drawer — global rules learned from user feedback feed back into the next pipeline run" width="900"/>
-
-*Adaptive Memory drawer — every rename, merge, hint, and chat conclusion lands here as a prioritised rule. The next pipeline run reads this file and the Decision Maker prompts adapt accordingly — that is the "adaptive learning" loop, made literal.*
 
 ### What you can see in real time
 
