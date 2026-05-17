@@ -243,14 +243,38 @@ class PersonaNamingAgent:
         # entries here so the Decision Maker honours the user's past
         # preferences on every future run.
         try:
-            from ui.feedback_store import build_preferences_block
-            prefs_block = build_preferences_block(
-                types=('manual_override', 'naming_hint', 'global_rule', 'merge'),
-            )
+            # Experiment opt-in: when EXPERIMENT_DEDUP_PREFS=1 is set
+            # (the convergence loop sets it), route through the LLM
+            # compaction layer that merges near-duplicates and drops
+            # stale rules BEFORE injection. Live UI runs (env var unset)
+            # use the original verbatim path.
+            import os as _os
+            if _os.environ.get('EXPERIMENT_DEDUP_PREFS') == '1':
+                from experiments.dedup_prefs import build_deduplicated_preferences_block
+                current_names = [
+                    (p.get('persona') or {}).get('name')
+                    for p in profiles.values()
+                ] if isinstance(profiles, dict) else None
+                # profiles here is cluster_profiles (no persona names yet),
+                # so current_names will be all None — that's fine, dedup
+                # just won't apply the stale-target filter on first naming.
+                current_names = [n for n in (current_names or []) if n]
+                prefs_block = build_deduplicated_preferences_block(
+                    current_cluster_names=current_names,
+                )
+                source_label = 'deduplicated UI feedback'
+            else:
+                from ui.feedback_store import build_preferences_block
+                prefs_block = build_preferences_block(
+                    types=('manual_override', 'naming_hint',
+                            'global_rule', 'merge'),
+                )
+                source_label = 'UI feedback'
             if prefs_block:
                 prompt = prefs_block + '\n' + prompt
-                print(f'  [PersonaNamer] Injected {prefs_block.count(chr(10))} lines of '
-                      f'user preferences from prior UI feedback.')
+                print(f'  [PersonaNamer] Injected '
+                      f'{prefs_block.count(chr(10))} lines of '
+                      f'{source_label}.')
         except Exception as _exc:  # noqa: BLE001
             # Memory injection is best-effort; never block the pipeline on it
             print(f'  [PersonaNamer] (no UI feedback memory loaded: {_exc})')

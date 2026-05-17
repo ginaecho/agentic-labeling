@@ -121,12 +121,22 @@ def _existing_rules_block() -> str:
 
 def _append_to_feedback_log(critique: Critique, rule_text: str) -> str:
     """Append accepted rule to outputs/user_feedback_log.jsonl.
-    Returns the new entry's id."""
+    Returns the new entry's id.
+
+    All agent-authored rules land at MEDIUM priority regardless of the
+    judge's stated severity — they are unverified hypotheses. Promotion
+    to 'high' happens only when:
+      - convergence_review marks the rule as load-bearing for convergence
+      - a human review explicitly endorses it (provenance becomes 'human')
+    """
     is_global = critique.target_cluster_id is None
     entry: dict = {
         'type': 'global_rule' if is_global else 'naming_hint',
-        'priority': 'high' if critique.severity == 'high' else 'medium',
+        'priority': 'medium',
         'source': f'judge:{critique.judge}',
+        'provenance': 'agent',
+        'judge_severity': critique.severity,    # preserved for later review
+        'convergence_verdict': 'unreviewed',
     }
     if is_global:
         entry['rule'] = rule_text

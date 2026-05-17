@@ -88,9 +88,13 @@ def _run_pipeline(max_iterations: int, intent_target: str,
     ]
     print(f'  [loop] launching: {" ".join(cmd)}')
     t0 = time.perf_counter()
+    # Inner pipeline opts into LLM rule compaction at injection time
+    # via this env var. PersonaNamer reads it and routes through
+    # experiments.dedup_prefs instead of the raw feedback_store.
+    env = {**os.environ, 'EXPERIMENT_DEDUP_PREFS': '1'}
     with run_log.open('w', encoding='utf-8') as logf:
         proc = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT,
-                                cwd=str(ROOT), env=os.environ.copy())
+                                cwd=str(ROOT), env=env)
     elapsed = time.perf_counter() - t0
     print(f'  [loop] pipeline exit={proc.returncode}  wall={elapsed/60:.1f} min')
     return proc.returncode == 0
@@ -113,6 +117,13 @@ def _read_run_metrics(run_dir: pathlib.Path) -> dict:
 
 
 def main() -> int:
+    # Load .env so the inner subprocess (run_pipeline.py) inherits the
+    # API key via os.environ.copy() in _run_pipeline().
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument('--max-hours', type=float, default=3.0,
                     help='Wall-clock budget for the outer loop (default 3)')
@@ -139,7 +150,8 @@ def main() -> int:
     # raw rows from this; the other two judges never see it.
     features_path = args.features_path
     if features_path is None:
-        for cand in ('data/processed/customer_features.parquet',
+        for cand in ('data/processed/engineered_features.parquet',
+                     'data/processed/customer_features.parquet',
                      'data/raw/fraudTrain.csv'):
             if (ROOT / cand).exists():
                 features_path = str(ROOT / cand)
@@ -177,6 +189,7 @@ def main() -> int:
 
     deadline = time.time() + args.max_hours * 3600
     stable_streak = 0
+    converged = False
     prev_run_dir: pathlib.Path | None = None
     run_idx = _next_run_number() - 1   # _run_one increments
 
@@ -242,6 +255,7 @@ def main() -> int:
             if stable_streak >= STABILITY_WINDOW:
                 print(f'\n[loop] CONVERGED — ARI >= {STABILITY_THRESHOLD} '
                       f'for {STABILITY_WINDOW} runs. Stopping.')
+                converged = True
                 break
         else:
             if stable_streak:
@@ -253,9 +267,31 @@ def main() -> int:
             print('\n[loop] wall-clock budget exhausted.')
             break
 
+    # ── Rule-review branch ────────────────────────────────────────────────
+    # Converged → Decision Maker promotes/demotes rules based on what
+    # was load-bearing. Not converged → write human_review.md for the
+    # user to inspect and re-import via experiments.human_review apply.
+    if converged:
+        print(f'\n[loop] convergence reached — running Decision Maker review…')
+        try:
+            from experiments.convergence_review import review_after_convergence
+            review_after_convergence()
+        except Exception as e:
+            print(f'  [loop] convergence_review failed: {e}')
+    else:
+        print(f'\n[loop] no convergence — writing human_review.md…')
+        try:
+            from experiments.human_review import write_review_md
+            md_path = write_review_md()
+            print(f'  [loop] edit {md_path}, then run:')
+            print(f'         python -m experiments.human_review apply {md_path}')
+        except Exception as e:
+            print(f'  [loop] human_review write failed: {e}')
+
     if pid_path.exists():
         pid_path.unlink()
-    print(f'\n[loop] done. {run_idx} run(s). history → {history_path}')
+    print(f'\n[loop] done. {run_idx} run(s). converged={converged}. '
+          f'history → {history_path}')
     return 0
 
 

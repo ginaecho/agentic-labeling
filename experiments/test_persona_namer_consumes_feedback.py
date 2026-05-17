@@ -30,12 +30,19 @@ Run:  .venv/bin/python -m experiments.test_persona_namer_consumes_feedback
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
 import sys
 import tempfile
 import time
 from unittest.mock import patch
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # The 6 judge-generated rules our test_judges_live.py produced and the
 # arbiter accepted (same wording as the live run, condensed for the test).
