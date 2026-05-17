@@ -1000,7 +1000,13 @@ Return ONLY a valid JSON object (no markdown, no extra text):
             print(f"  Press Enter to skip {role} (optional).")
 
         while True:
-            val = input(f"  → Enter column name for {role}: ").strip()
+            try:
+                val = input(f"  → Enter column name for {role}: ").strip()
+            except EOFError:
+                # Non-interactive mode (bypass / detached / piped). Fall back
+                # to the caller's default (None → df.columns[0] for required).
+                print(f"  [non-interactive] no input — falling back to default for {role}.")
+                return None
             if val == "" and not required:
                 print(f"  Skipping {role}.")
                 return None
