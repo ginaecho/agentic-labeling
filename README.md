@@ -138,6 +138,7 @@ The script:
 
 - Loads `.env` and `config.yaml`
 - Auto-detects whether to run FeatureEngineerAgent (raw CSV) or skip it (parquet)
+- **Boots the interactive UI** in a background thread and opens your browser (use `--no-ui` to disable, `--ui-port 5090` to change port) — see [Interactive UI + Adaptive Learning](#interactive-ui--adaptive-learning) below for what you can do in it
 - Runs the Decision Maker loop with `max_total_iterations=10`
 - After each failure, the Decision Maker proposes new VIF/k/algorithm/silhouette parameters
 - At max iterations, delivers a best-effort result if no iteration fully passed
@@ -191,6 +192,51 @@ After a successful (or best-effort) run:
 | `outputs/pipeline_log.json` | Full structured log of every agent's status report across all iterations. |
 | `outputs/agents_conversation.txt` | Full text log of every LLM prompt and response. |
 | `data/processed/engineered_features.parquet` | Entity-level feature matrix built by FeatureEngineerAgent (when starting from CSV). |
+
+---
+
+## Interactive UI + Adaptive Learning
+
+`run_pipeline.py` boots a live web UI in a background thread and auto-opens it in your browser (use `--no-ui` for headless, `--ui-port 5090` to change port). The UI is fused with the pipeline through an event bus: every agent step, LLM call, gate decision, and escalation streams over Server-Sent Events to the browser in real time.
+
+### What you can see in real time
+
+- **Architecture graph** — the seven agents light up as each one runs; the Orchestrator pulses while it's waiting for the Decision Maker.
+- **Agent ↔ Decision Maker chat bubbles** — each LLM round-trip is rendered as a typing bubble so you can read the prompts and answers as they happen.
+- **Per-agent outputs panel** — every agent's computed result (silhouette curve, VIF table, classifier metrics, etc.) appears in its own card and updates per iteration.
+- **3 cost ledgers** — pipeline, evidence (auto-explanations), and naming (cluster chat) are billed separately so you can see exactly where the API spend goes.
+- **Data & Evidence tab** — dataset profile, per-column skewness, per-iteration PCA scatter, cluster size distribution, classifier per-class F1, lineage tree, and a final per-iteration summary table with the winning iteration highlighted.
+- **Named Clusters tab** — each cluster as an editable card with its name, tagline, description, traits, dominant features, and confidence; **only the best iteration's personas are shown here** (best = highest composite of F1 ↑ + Silhouette ↑ − VIF penalty).
+
+### Feedback system — fine-tune cluster names
+
+Each cluster card in the Named Clusters tab supports four interactions:
+
+1. **Direct edit** — rename, retag, edit description/traits/confidence inline, then **Save edits**. The diff is persisted to `outputs/user_feedback_log.jsonl` as a `manual_override` entry.
+2. **Regenerate with hint** — type a hint ("focus on dining behaviour, don't mention groceries"), pick a priority (low / medium / high), and the Decision Maker re-names the cluster taking the hint into account. Logged as `naming_hint`.
+3. **Merge clusters** — pick two or more cards, hit **Merge**. The agent rebuilds the combined profile, names the merged cluster, and the original cluster IDs disappear. Logged as `merge`.
+4. **Per-cluster chat (multi-turn)** — ask the agent why a trait was chosen, challenge a feature interpretation, or explore alternatives. Conclude the discussion with a proposed action — **rename** / **merge** / **keep as-is** / **save guidance for the next run**. The key learnings from each chat are pushed into the feedback log as a high-priority `global_rule` so the next pipeline run sees *why* the rename happened, not just the before/after diff.
+
+### Adaptive learning — feedback flows back to the agents
+
+Every entry in `outputs/user_feedback_log.jsonl` is fed into the **next pipeline run's** Decision Maker prompts, with three downstream effects:
+
+- **PersonaNamer** reads `manual_override` + `naming_hint` entries as authoritative preferences ("the user previously renamed this style of cluster from X to Y — apply the same intuition").
+- **FeatureSelector + Clusterer** receive `global_rule` entries that affect feature focus and clustering decisions ("the user said groceries shouldn't dominate this segment — down-weight grocery-related features").
+- **Orchestrator's parameter-tuning prompt** reads merge/global-rule entries when deciding whether to relax silhouette targets or switch algorithms.
+
+Combined with the **adaptive escalation rules** (silhouette miss → tune params; 3 consecutive misses → re-engineer features + fresh algorithm pick; 3 more misses → relax silhouette target), the pipeline self-corrects across iterations *and* across runs.
+
+### Bypass vs Interactive mode
+
+A topbar toggle switches between two modes:
+
+- **Bypass** — when a warning fires, the pipeline auto-decides and asks an `EvidenceExplainer` LLM (separate "evidence" cost ledger) to narrate the decision in active voice on the relevant agent card. No human intervention required.
+- **Interactive** — the pipeline pauses on warnings and opens a decision modal. Your guidance is saved as a high-priority memory rule that the very next iteration's prompts read.
+
+### Memory drawer
+
+A drawer (right side of the topbar) lists every feedback entry with filters (All / Global rules / Naming hints / Manual edits / Merges), inline add/delete, and a per-entry priority + date stamp. Inactive rules can be toggled off without deletion.
 
 ---
 
