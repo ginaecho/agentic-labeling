@@ -43,7 +43,7 @@ import time
 
 import requests
 
-BASE_URL = "http://127.0.0.1:5057"
+BASE_URL = "http://127.0.0.1:5057"   # overridden by --base-url / --port at runtime
 # Order matters for tiling: intent first (user fills it), then live views, then
 # 'named' which only has content after pipeline_complete (the cluster grid +
 # detail panel populate once personas land in outputs/personas.json).
@@ -99,6 +99,10 @@ def main() -> None:
                     help="don't submit intent automatically — wait for user")
     ap.add_argument("--regions", nargs="*", default=REGIONS,
                     help=f"which regions to record (default: all {len(REGIONS)})")
+    ap.add_argument("--port", type=int, default=None,
+                    help="UI port (default 5057 — must match run_pipeline.py --ui-port)")
+    ap.add_argument("--base-url", default=None,
+                    help="full UI URL like http://127.0.0.1:5090 (overrides --port)")
     ap.add_argument("--skip-pipeline-check", action="store_true",
                     help="don't require pipeline_running=true (useful when recording "
                          "post-completion views like 'named' against already-saved personas)")
@@ -107,6 +111,14 @@ def main() -> None:
                          "for pipeline_complete (use when capturing manual interactions like "
                          "renaming clusters)")
     args = ap.parse_args()
+
+    # Resolve the UI base URL: --base-url wins, then --port, then BASE_URL default.
+    global BASE_URL
+    if args.base_url:
+        BASE_URL = args.base_url.rstrip("/")
+    elif args.port:
+        BASE_URL = f"http://127.0.0.1:{args.port}"
+    print(f"  [demo] using UI at {BASE_URL}")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -145,6 +145,11 @@ class PipelineState:
     best_silhouette_value: float = -1.0
     best_silhouette_features: list[str] = field(default_factory=list)
 
+    # Composite score of the all-time best iteration (F1 + Silhouette − VIF penalty).
+    # Recomputed every call to update_best so the per-iteration comparison is fair.
+    best_composite_score: float = float('-inf')
+    best_max_vif: float = 0.0
+
     # Dynamic tuning parameters — LLM adjusts these after each failed iteration
     # so agents are NOT locked into hardcoded thresholds.
     tuning_params: dict = field(default_factory=lambda: {
@@ -174,34 +179,74 @@ class PipelineState:
             self.best_silhouette_cluster = cr
             self.best_silhouette_features = list(selected_features)
 
+    @staticmethod
+    def composite_score(silhouette: Optional[float],
+                         cv_f1_macro: Optional[float],
+                         max_vif: Optional[float]) -> float:
+        """Decision metric for the best iteration. Higher is better.
+
+        Weighting (all three deliberately on different scales so each one matters
+        without any single metric dominating):
+          • F1 macro      → ×100  (primary signal: classifier learnability of the labels)
+          • Silhouette    → ×30   (cluster separation quality)
+          • VIF penalty   → −log10(max(1, max_vif)) × 5  (feature multicollinearity)
+
+        A perfect iteration (F1=1.0, Sil=1.0, VIF=1.0) ≈ 100 + 30 − 0 = 130.
+        A terrible iteration (F1=0.2, Sil=0.1, VIF=50) ≈ 20 + 3 − 8.5 ≈ 14.5.
+        Negative silhouette or F1 contribute 0 (not negative) — we don't want
+        a single dead-bad signal to dominate when the others are fine.
+        """
+        import math
+        f1_part  = max(0.0, float(cv_f1_macro or 0.0)) * 100.0
+        sil_part = max(0.0, float(silhouette or 0.0)) * 30.0
+        vif_part = -math.log10(max(1.0, float(max_vif or 1.0))) * 5.0
+        return f1_part + sil_part + vif_part
+
     def update_best(
         self,
         nr: NamingResult,
         cr: ClusteringResult,
         clf: Optional[ClassifierResult] = None,
-    ) -> None:
-        """Keep track of the best (passed gate · highest F1 · then avg_confidence) result.
+        max_vif: Optional[float] = None,
+    ) -> bool:
+        """Keep the iteration with the highest composite score (F1 + Sil − VIF penalty).
 
-        F1 is the primary tiebreaker because it's what the Classifier gate
-        enforces and what end-users compare across iterations. avg_confidence
-        only breaks the tie if F1 is unavailable / equal.
+        Unlike before, this runs for EVERY iteration that produced a Classifier
+        result — not only iterations whose PersonaNamer cleared the Clarity
+        Gate. That's because the user-facing best-iteration decision combines
+        three signals (F1↑, Silhouette↑, VIF↓), so we must score every iter
+        with a Classifier result, not gate by naming quality alone.
+
+        Returns True if this iteration is the new best (helps the caller log it).
         """
-        if not nr.passed:
-            return
+        if cr is None or clf is None:
+            return False
 
-        def _score(_nr, _clf):
-            # Composite: F1 dominates (×100 weight), confidence is tiebreaker
-            f1 = float(getattr(_clf, 'cv_f1_macro', 0.0) or 0.0) if _clf else 0.0
-            conf = float(getattr(_nr, 'avg_confidence', 0.0) or 0.0)
-            return f1 * 100.0 + conf
+        sil = cr.silhouette if cr.silhouette is not None else 0.0
+        f1  = clf.cv_f1_macro if clf.cv_f1_macro is not None else 0.0
+        vif = float(max_vif) if max_vif is not None else self.best_max_vif or 1.0
+        new_score = self.composite_score(sil, f1, vif)
 
-        if self.best_naming_result is None:
+        if new_score > self.best_composite_score:
+            self.best_composite_score = new_score
             self.best_naming_result = nr
             self.best_clustering_result = cr
             self.best_classifier_result = clf
-            return
+            self.best_max_vif = vif
+            return True
+        return False
 
-        if _score(nr, clf) > _score(self.best_naming_result, self.best_classifier_result):
-            self.best_naming_result = nr
-            self.best_clustering_result = cr
-            self.best_classifier_result = clf
+    def current_max_vif(self) -> float:
+        """Largest VIF among the currently-selected features (1.0 if unknown).
+        Sourced from the most recent FeatureSelectionResult; used as the VIF
+        component of the composite score for the current iteration."""
+        if not self.fs_history:
+            return 1.0
+        last = self.fs_history[-1]
+        vt = getattr(last, 'vif_table', None) or {}
+        if not vt:
+            return 1.0
+        try:
+            return max(float(v) for v in vt.values() if v is not None)
+        except (ValueError, TypeError):
+            return 1.0

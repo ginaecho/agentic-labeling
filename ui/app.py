@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import sys
+import threading
 import time
 
 # Allow running as `python ui/app.py` or `python -m ui.app`
@@ -934,6 +935,18 @@ def cluster_chat():
     return jsonify(out)
 
 
+# ── /api/explain dedup cache ──────────────────────────────────────────────────
+# When 2+ browser windows are open (recording mode runs 3+ Chromium contexts),
+# each independently subscribes to SSE and fires its own POST /api/explain for
+# every warning. The LLM call is identical across windows, so we cache by
+# (agent, issue) for a short TTL and return the cached response — saving 2–3×
+# token spend on the evidence ledger without changing UX.
+_EXPLAIN_CACHE: dict = {}        # key -> {"response": dict, "ts": float}
+_EXPLAIN_CACHE_TTL = 120.0       # seconds — short enough that re-fires after
+                                 # genuine state change get a fresh answer
+_EXPLAIN_CACHE_LOCK = threading.Lock()
+
+
 @app.post('/api/explain')
 def explain_warning():
     """LLM call (category='evidence') that explains a warning and recommends
@@ -945,6 +958,16 @@ def explain_warning():
     evidence = payload.get('evidence') or {}   # numbers backing the warning
     if not issue:
         return jsonify({'error': 'issue is required'}), 400
+
+    # Cache hit? Return immediately without billing another LLM call.
+    cache_key = f"{agent}::{issue}"
+    now = time.time()
+    with _EXPLAIN_CACHE_LOCK:
+        hit = _EXPLAIN_CACHE.get(cache_key)
+        if hit and (now - hit['ts']) < _EXPLAIN_CACHE_TTL:
+            cached = dict(hit['response'])
+            cached['_cached'] = True   # so the UI/log can tell it was deduped
+            return jsonify(cached)
 
     # In bypass mode the user sees this as the AGENT'S DECISION (not advice).
     # The LLM must respond as if the action has already been taken / queued —
@@ -996,6 +1019,11 @@ Return ONLY a valid JSON object — no markdown fences, no extra text:
         parsed = json.loads(text)
     except json.JSONDecodeError:
         parsed = {'explanation': raw.strip(), 'visual_to_check': ''}
+
+    # Populate the dedup cache so simultaneous repeat calls (other browser
+    # windows / quick re-fires) reuse this response instead of re-billing.
+    with _EXPLAIN_CACHE_LOCK:
+        _EXPLAIN_CACHE[cache_key] = {'response': parsed, 'ts': now}
     return jsonify(parsed)
 
 

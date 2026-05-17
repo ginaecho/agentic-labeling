@@ -2692,12 +2692,29 @@ function handleEvent(e) {
   // Refresh the architecture graph on any event — agent reports AND LLM call
   // starts/finishes so the active-agent + thinking-orchestrator are live.
   setTimeout(applyArchFromEvents, 0);
-  // If the Evidence tab is currently open, refresh it on EVERY event so the
-  // PCA snapshots, log entries, and final summary stay in lock-step with the
-  // other windows (debounced to ~250ms so we don't thrash on bursty SSE).
+  // If the Evidence tab is currently open, refresh it as events arrive. We
+  // CANNOT use a pure debounce here: during a bursty pipeline phase (rapid
+  // llm_call_started/finished pairs) every new event clears the timer and the
+  // tab never re-renders until the burst pauses, which is why users saw the
+  // Data & Evidence cards "freeze" mid-run and only update after manual F5.
+  //
+  // The fix is a hybrid: debounce 250 ms (cheap on quiet periods) but ALSO
+  // schedule a hard-deadline render every 20 s so we always catch up even
+  // during sustained activity — matches the global refresh watchdog cadence
+  // so the page never thrashes more than 3× per minute on bursty SSE.
   if (!document.getElementById('evidence-view').classList.contains('hidden')) {
     clearTimeout(window._evRefreshTimer);
-    window._evRefreshTimer = setTimeout(renderEvidence, 250);
+    window._evRefreshTimer = setTimeout(() => {
+      renderEvidence();
+      window._evRefreshDeadline = null;
+    }, 250);
+    if (!window._evRefreshDeadline) {
+      window._evRefreshDeadline = setTimeout(() => {
+        clearTimeout(window._evRefreshTimer);
+        renderEvidence();
+        window._evRefreshDeadline = null;
+      }, 20000);
+    }
   }
   if (ev === 'silhouette_target_missed') {
     appendLogLine(`[${(e.ts || '').slice(11,19)}] ESCALATION CHECK — silhouette ${Number(e.silhouette || 0).toFixed(3)} < target ${Number(e.target).toFixed(2)} (re-eng ${e.consecutive_failures}/${e.max_failures} · relax ${e.relax_failures || 0}/${e.max_relax_failures || 5})`);
@@ -3142,6 +3159,33 @@ async function boot() {
   loadMode();
   updateTabCount();
   subscribeToEvents();
+  startGlobalRefreshWatchdog();
+}
+
+// Defensive 20-second watchdog that re-renders whichever view is currently
+// visible. Works in BOTH the bare `full` recording and the focused demo
+// recordings: even if the SSE stream goes silent for a stretch (proxy
+// timeout, browser sleeping a background tab, sustained event burst that
+// starves an upstream debounce), the user always sees fresh content because
+// this loop keeps painting. The render functions are idempotent — re-running
+// them with identical state is a no-op cost-wise.
+function startGlobalRefreshWatchdog() {
+  if (window._globalRefreshTimer) return;
+  window._globalRefreshTimer = setInterval(() => {
+    try {
+      // Live pipeline panels (graph + cost) are cheap and always present
+      // in the DOM. Re-render to catch any state drift.
+      renderArchGraph();
+      renderCostPanel();
+      // Evidence + Named tabs are conditional; only refresh if shown.
+      if (!document.getElementById('evidence-view').classList.contains('hidden')) {
+        renderEvidence();
+      }
+      if (!document.getElementById('cluster-grid').classList.contains('hidden')) {
+        renderGrid();
+      }
+    } catch (_) { /* render fns are defensive */ }
+  }, 20000);
 }
 
 // ── Demo / recording focus mode ──────────────────────────────────────────
@@ -3158,6 +3202,19 @@ function applyDemoMode() {
     // recording captures the cluster grid the moment personas.json is written
     // (the SSE pipeline_complete handler already triggers a reload of personas).
     selectView('clusters');
+  }
+  // Defensive auto-refresh for `graph` and `tokens` recordings. The SSE
+  // stream usually drives both, but on long static periods the connection
+  // can stall (proxy timeouts, browser sleeping a background tab, etc.).
+  // Polling every 2s guarantees the visible content keeps moving while the
+  // recorder is running, so the resulting video never looks frozen.
+  if (area === 'graph' || area === 'tokens') {
+    setInterval(() => {
+      try {
+        if (area === 'graph')  renderArchGraph();
+        if (area === 'tokens') renderCostPanel();
+      } catch (_) { /* render fns are defensive, swallow */ }
+    }, 2000);
   }
   // Render a small exit button so you can leave demo mode without editing the URL
   if (!document.getElementById('demo-exit')) {
