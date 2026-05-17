@@ -128,9 +128,34 @@ def main() -> int:
                             'amounts, category breakdowns, and recency.',
                     help='Short factual description of WHAT the data is about. '
                          'Shown ONLY to the domain judge.')
+    ap.add_argument('--features-path', type=str, default=None,
+                    help='Engineered features parquet/CSV used for raw-record '
+                         'sampling by the domain judge. Auto-detected if omitted.')
     ap.add_argument('--reset-feedback', action='store_true',
                     help='Wipe outputs/user_feedback_log.jsonl before starting')
     args = ap.parse_args()
+
+    # Auto-detect features file if not provided. The domain judge samples
+    # raw rows from this; the other two judges never see it.
+    features_path = args.features_path
+    if features_path is None:
+        for cand in ('data/processed/customer_features.parquet',
+                     'data/raw/fraudTrain.csv'):
+            if (ROOT / cand).exists():
+                features_path = str(ROOT / cand)
+                break
+    features_df = None
+    if features_path:
+        try:
+            import pandas as pd
+            features_df = (pd.read_parquet(features_path)
+                            if features_path.endswith('.parquet')
+                            else pd.read_csv(features_path))
+            print(f'  [loop] loaded features for domain-judge sampling: '
+                  f'{features_path}  shape={features_df.shape}')
+        except Exception as e:
+            print(f'  [loop] could NOT load features ({e}) — domain judge '
+                  f'will fall back to ratio-only evidence.')
 
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -177,9 +202,10 @@ def main() -> int:
 
         _snapshot_outputs(run_dir)
 
-        print('  [loop] running 3 blind judges in parallel…')
-        critiques = critique_run(run_dir, args.dataset_description)
-        evidence = build_arbiter_evidence(run_dir, args.dataset_description)
+        print('  [loop] running 3 blind judges in parallel (asymmetric views)…')
+        critiques = critique_run(run_dir, args.dataset_description, features_df)
+        evidence = build_arbiter_evidence(run_dir, args.dataset_description,
+                                           features_df)
         with (run_dir / 'critiques.jsonl').open('w', encoding='utf-8') as f:
             for c in critiques:
                 f.write(json.dumps(c.to_dict(), ensure_ascii=False) + '\n')
