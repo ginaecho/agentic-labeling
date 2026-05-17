@@ -22,10 +22,9 @@ The pipeline is driven by **`run_pipeline.py`**. Seven specialised agents plus a
 
 ```mermaid
 flowchart TB
-    subgraph BUS["**OrchestratorBus** — sole LLM gateway (logs every prompt + response)"]
-        direction LR
-        DM(("Decision Maker<br/>LLM API<br/>Claude / GPT / Gemini"))
-    end
+    DM(("Decision Maker<br/>LLM API<br/>Claude · GPT · Gemini"))
+    BUS["OrchestratorBus · sole LLM gateway<br/>logs every prompt and response"]
+    DM <--> BUS
 
     U["⓪ UserInputAgent<br/>captures clustering intent"]
     E["① DatasetExaminerAgent<br/>profile + feature group suggestions"]
@@ -39,18 +38,23 @@ flowchart TB
 
     U --> E --> FE --> FS --> CL --> PN --> CF --> HC --> SAVE
 
-    PN -. clarity gate fails<br/>recluster .-> CL
-    CF -. F1 < 0.70<br/>reselect features .-> FS
-    CF -. F1 < 0.70<br/>recluster .-> CL
-    CL -. silhouette < target<br/>reselect features .-> FS
-    CL -. 3 consecutive misses<br/>re-engineer features .-> FE
-    HC -. user: recluster .-> CL
-    HC -. user: reselect features .-> FS
+    PN -. "clarity gate fails — recluster" .-> CL
+    CF -. "F1 below 0.70 — reselect features" .-> FS
+    CF -. "F1 below 0.70 — recluster" .-> CL
+    CL -. "silhouette below target — reselect features" .-> FS
+    CL -. "3 consecutive misses — re-engineer features" .-> FE
+    HC -. "user: recluster" .-> CL
+    HC -. "user: reselect features" .-> FS
 
-    BUS <-.-> U & E & FE & FS & CL & PN & CF
+    BUS <-.-> U
+    BUS <-.-> E
+    BUS <-.-> FE
+    BUS <-.-> FS
+    BUS <-.-> CL
+    BUS <-.-> PN
+    BUS <-.-> CF
 
     classDef agent fill:#1a2332,stroke:#4a9eff,stroke-width:2px,color:#fff
-    classDef gate fill:#2d1a32,stroke:#c44aff,stroke-width:2px,color:#fff
     classDef human fill:#1a3320,stroke:#4aff9e,stroke-width:2px,color:#fff
     classDef save fill:#332a1a,stroke:#ffc44a,stroke-width:2px,color:#fff
     class U,E,FE,FS,CL,PN,CF agent
