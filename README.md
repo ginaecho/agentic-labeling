@@ -32,19 +32,15 @@ Demo dataset (optional): `kaggle datasets download -d kartik2112/fraud-detection
 
 ## Interactive UI + Adaptive Learning
 
-The UI streams every agent step, LLM call, gate decision, and escalation over Server-Sent Events. Three things make it more than a viewer:
+The UI streams every agent step, LLM call, gate decision, and escalation over Server-Sent Events. Two things make it more than a viewer:
 
-**Named Clusters tab** — every cluster is an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next run.
+**Named Clusters tab + Adaptive Memory** — every cluster is an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next run. Every rename, merge, hint, and chat conclusion lands in the **Adaptive Memory drawer** (right side of the topbar) as a prioritised rule; the next pipeline run reads `outputs/user_feedback_log.jsonl` and the Decision Maker prompts adapt — that is the adaptive-learning loop, made literal.
 
-<img src="docs/screenshots/01_per_cluster_chat_and_save.png" alt="Named Clusters tab — persona cards with per-cluster multi-turn chat and Conclude → propose action panel" width="900"/>
+https://github.com/ginaecho/Agentic_Labelling/raw/main/recordings/named_cluster.mp4
 
 **Data & Evidence tab** — per-iteration 2-D PCA projection of the clustered data, with the orchestrator's adaptive-escalation warning surfaced in line: *"Silhouette=0.142 < target 0.40 — orchestrator will reselect features (or escalate after 3 consecutive misses)"*.
 
-<img src="docs/screenshots/02_pca_with_adaptive_escalation.png" alt="Data & Evidence tab — per-iteration PCA projection plus orchestrator warning about silhouette miss" width="900"/>
-
-**Adaptive Memory drawer** — every rename, merge, hint, and chat conclusion lands here as a prioritised rule. The next pipeline run reads `outputs/user_feedback_log.jsonl` and the Decision Maker prompts adapt — that is the adaptive-learning loop, made literal.
-
-<img src="docs/screenshots/03_adaptive_memory_drawer.png" alt="Adaptive memory drawer — global rules learned from user feedback feed back into the next pipeline run" width="900"/>
+https://github.com/ginaecho/Agentic_Labelling/raw/main/recordings/data_evidence.mp4
 
 ---
 
