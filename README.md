@@ -20,49 +20,9 @@ The system described here automates the entire loop — feature engineering, sel
 
 The pipeline is driven by **`run_pipeline.py`**. Seven specialised agents plus a Decision Maker form a feedback loop. Every quality gate can push the pipeline backward; it only moves forward when all gates pass (or the user approves):
 
-```mermaid
-flowchart TB
-    DM(("Decision Maker<br/>LLM API<br/>Claude · GPT · Gemini"))
-    BUS["OrchestratorBus · sole LLM gateway<br/>logs every prompt and response"]
-    DM <--> BUS
+<img src="docs/screenshots/00_architecture.png" alt="Seven agents arranged left-to-right (UserInput → DatasetExaminer → FeatureEngineer → FeatureSelector → Clusterer → PersonaNamer → Classifier) with dotted feedback arrows from each quality-gate back down to a central Orchestrator + LLM Decision Maker box" width="1100"/>
 
-    U["⓪ UserInputAgent<br/>captures clustering intent"]
-    E["① DatasetExaminerAgent<br/>profile + feature group suggestions"]
-    FE["② FeatureEngineerAgent<br/>entity-level features from raw events"]
-    FS["③ FeatureSelectionAgent<br/>PCA + Autoencoder + VIF gate + LLM pick"]
-    CL["④ ClusteringAgent<br/>auto algo + silhouette k-opt + deepening loop"]
-    PN["⑤ PersonaNamingAgent<br/>names clusters · Clarity Gate"]
-    CF["⑥ ClassifierAgent<br/>5-fold CV · macro-F1 ≥ 0.70 gate"]
-    HC{{"Human Checkpoint<br/>approve · recluster · reselect · quit"}}
-    SAVE[/"Save outputs to outputs/"/]
-
-    U --> E --> FE --> FS --> CL --> PN --> CF --> HC --> SAVE
-
-    PN -. "clarity gate fails — recluster" .-> CL
-    CF -. "F1 below 0.70 — reselect features" .-> FS
-    CF -. "F1 below 0.70 — recluster" .-> CL
-    CL -. "silhouette below target — reselect features" .-> FS
-    CL -. "3 consecutive misses — re-engineer features" .-> FE
-    HC -. "user: recluster" .-> CL
-    HC -. "user: reselect features" .-> FS
-
-    BUS <-.-> U
-    BUS <-.-> E
-    BUS <-.-> FE
-    BUS <-.-> FS
-    BUS <-.-> CL
-    BUS <-.-> PN
-    BUS <-.-> CF
-
-    classDef agent fill:#1a2332,stroke:#4a9eff,stroke-width:2px,color:#fff
-    classDef human fill:#1a3320,stroke:#4aff9e,stroke-width:2px,color:#fff
-    classDef save fill:#332a1a,stroke:#ffc44a,stroke-width:2px,color:#fff
-    class U,E,FE,FS,CL,PN,CF agent
-    class HC human
-    class SAVE save
-```
-
-Solid arrows = the forward path; dotted arrows = the feedback loops that push the pipeline backward. Every backward arrow is gated by a measurable threshold (Clarity Gate confidence, F1 macro, silhouette target) — the Decision Maker proposes new parameters for the next attempt and the loop closes around the OrchestratorBus.
+Solid arrows = the forward path; dotted arrows = the feedback loops. Every backward arrow is gated by a measurable threshold (oversized cluster, Clarity Gate fail, F1 macro < 0.70, silhouette < target) — the Orchestrator + LLM Decision Maker reads every status report, diagnoses the failure, tunes the next iteration's parameters, and routes the pipeline back to whichever step needs to re-run.
 
 ### What each agent does
 
