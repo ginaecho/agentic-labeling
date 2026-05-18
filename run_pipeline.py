@@ -28,6 +28,12 @@ import textwrap
 import time
 from datetime import datetime
 
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 class _Tee:
     """Write to both the original stream and a log file."""
