@@ -42,20 +42,28 @@ from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 
 
 def _load_df(path: str) -> pd.DataFrame:
-    """Load a DataFrame from parquet or CSV, detected by file extension."""
+    """Load a DataFrame from parquet or CSV, detected by file extension.
+
+    Always injects a `_row_id` column (1..N) so datasets without an obvious
+    ID column still have a unique per-row identifier the agents can use as
+    the entity key (treating each raw row as one entity to classify).
+    """
     import pathlib
     suffix = pathlib.Path(path).suffix.lower()
     if suffix == '.parquet':
-        return pd.read_parquet(path)
+        df = pd.read_parquet(path)
     elif suffix in ('.csv', '.tsv'):
         sep = '\t' if suffix == '.tsv' else ','
-        return pd.read_csv(path, sep=sep, low_memory=False)
+        df = pd.read_csv(path, sep=sep, low_memory=False)
     else:
-        # Try parquet first, fall back to CSV
         try:
-            return pd.read_parquet(path)
+            df = pd.read_parquet(path)
         except Exception:
-            return pd.read_csv(path, low_memory=False)
+            df = pd.read_csv(path, low_memory=False)
+
+    if '_row_id' not in df.columns:
+        df.insert(0, '_row_id', range(1, len(df) + 1))
+    return df
 
 
 def human_checkpoint(personas: dict, cluster_result, classifier_result, bus: OrchestratorBus) -> HumanDecision:
@@ -231,6 +239,12 @@ class Orchestrator:
 
     def __init__(self, config: dict):
         self.config = config
+        # Deep-copy the original config so per-run intent overrides (e.g.
+        # max_cluster_size_pct from user_intent text) can be undone on the
+        # next run() call. Without this, a 25% cap from one run would persist
+        # silently into the next.
+        import copy as _copy
+        self._config_baseline = _copy.deepcopy(config)
         self.client = anthropic.Anthropic()   # ONLY the Orchestrator holds this
 
         # ── Shared bus — the single communication channel for all agents ────────
@@ -407,6 +421,25 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
           'personas'    : dict or None
           'run_history' : list of dicts summarising each stage/iteration
         """
+        # Restore config from the baseline so any per-run overrides from a
+        # previous .run() call don't carry into this one (fully-fresh restart).
+        import copy as _copy
+        self.config = _copy.deepcopy(self._config_baseline)
+
+        # Clear any stale abort flag from a prior run (defensive — the file
+        # is consumed when honoured, but a crash mid-run could leave it).
+        try:
+            pathlib.Path('outputs/pipeline_abort.json').unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        # Reset bus + per-run accumulators so a second .run() in the same
+        # process (e.g. after a blocked/aborted restart) starts with no
+        # leakage from the previous attempt — the UI sees a fresh run_started
+        # event and wipes its in-browser state.
+        self.bus.reset_for_new_run()
+        self._llm_calls = []
+
         print('\n' + '=' * 65)
         print('Multi-Agent Clustering & Persona Discovery Pipeline')
         print('=' * 65)
@@ -437,6 +470,28 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             self._timings['UserInput'].append(time.perf_counter() - _t0)
         elif user_intent:
             state.user_intent = user_intent
+
+        # ── Apply user-intent overrides to pipeline config ──────────────────
+        # max_cluster_size_pct: if the user said "max cluster <X%>" in their
+        # intent text, the UserInputAgent parsed it into this field; we
+        # propagate it to self.config so Clusterer's oversized-cluster guard
+        # uses the user's limit instead of the default 40%.
+        if state.user_intent and state.user_intent.max_cluster_size_pct is not None:
+            old = float(self.config.get('max_cluster_size_pct', 0.40))
+            new = float(state.user_intent.max_cluster_size_pct)
+            if abs(new - old) > 1e-6:
+                self.config['max_cluster_size_pct'] = new
+                print(
+                    f'  [Orchestrator] max_cluster_size_pct overridden by user intent: '
+                    f'{old:.0%} → {new:.0%}.'
+                )
+                self.bus.emit(
+                    'config_override_from_intent',
+                    field='max_cluster_size_pct',
+                    old=old,
+                    new=new,
+                    source='user_intent_text',
+                )
 
         # ── Validate user intent path; fall back to features_path if missing ──
         # UserInputAgent may default to a pre-built parquet that no longer exists.
@@ -529,6 +584,54 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             'algo_hint': dataset_profile.algo_hint,
         })
 
+        # ── Decision-Maker case-memory recall ──────────────────────────────────
+        # Look up any prior successful run whose dataset+goal matches this one
+        # (exact = same column-set + row count; similar = looser overlap).
+        # The match is stored on `state` and surfaced as a HINT block inside
+        # _ask_parameter_tuning — never a hard override.
+        state.case_recall = None
+        try:
+            from skills.case_memory import find_case
+            _ui = state.user_intent
+            _ds_name = pathlib.Path(raw_data_path).name if raw_data_path else features_path
+            _cols = list(raw_df.columns) if raw_df is not None else []
+            recall = find_case(
+                dataset_name=_ds_name,
+                columns=_cols,
+                n_rows=len(raw_df) if raw_df is not None else 0,
+                business_purpose=(_ui.business_purpose if _ui else ''),
+                target_entity=(_ui.target_entity if _ui else ''),
+                n_clusters_requested=(getattr(_ui, 'n_clusters_requested', None) if _ui else None),
+            )
+            if recall is not None:
+                state.case_recall = recall
+                print(
+                    f'\n[Orchestrator] 🧠 Case-memory recall ({recall.match_type.upper()}): '
+                    f'{recall.notes}'
+                )
+                strat = recall.case.get('winning_strategy', {})
+                print(
+                    f'  [Orchestrator] Prior winning recipe → algo={strat.get("algorithm","?")}, '
+                    f'k={strat.get("k","?")}, vif={strat.get("vif_threshold","?")}, '
+                    f'features={strat.get("n_features_kept","?")}.'
+                )
+                if recall.match_type == 'similar':
+                    print('  [Orchestrator] ⚠ NOT the same case — recall used as inspiration only.')
+                # Emit so the UI can surface it as a chip too.
+                self.bus.emit(
+                    'case_memory_recall',
+                    match_type=recall.match_type,
+                    notes=recall.notes,
+                    prior_silhouette=recall.case.get('outcome', {}).get('silhouette'),
+                    prior_cv_f1_macro=recall.case.get('outcome', {}).get('cv_f1_macro'),
+                    prior_algorithm=strat.get('algorithm'),
+                    prior_k=strat.get('k'),
+                )
+            else:
+                print('\n[Orchestrator] 🧠 Case-memory: no matching prior case found.')
+        except Exception as _exc:  # noqa: BLE001
+            print(f'  [Orchestrator] (case-memory lookup failed: {_exc})')
+
         # ── Step 2: Feature Engineering (only when a raw CSV was provided) ─────
         # When the user gave a .csv path, the FeatureEngineerAgent turns the
         # event-level data into an entity-level feature matrix and saves
@@ -582,6 +685,38 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
 
         # ── Main pipeline loop ─────────────────────────────────────────────────
         while state.total_iterations < max_total_iterations:
+            # ── Abort check (UI-driven): if outputs/pipeline_abort.json exists,
+            # stop the run cleanly between iterations. run_pipeline.py loops and
+            # picks up a fresh intent on the next pass.
+            _abort_path = pathlib.Path('outputs/pipeline_abort.json')
+            if _abort_path.exists():
+                try:
+                    _abort_payload = json.loads(_abort_path.read_text(encoding='utf-8'))
+                except (OSError, json.JSONDecodeError):
+                    _abort_payload = {}
+                _reason = _abort_payload.get('reason', 'user_abort')
+                _restart = bool(_abort_payload.get('restart', True))
+                print(f'\n[Orchestrator] 🛑 Abort signal received '
+                      f'(reason={_reason!r}, restart={_restart}).')
+                try:
+                    _abort_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                self.bus.emit(
+                    'pipeline_complete',
+                    status='aborted',
+                    reason=_reason,
+                    restart=_restart,
+                    completed_iterations=state.total_iterations,
+                )
+                return {
+                    'status': 'aborted',
+                    'reason': _reason,
+                    'restart': _restart,
+                    'personas': None,
+                    'run_history': run_history,
+                }
+
             state.total_iterations += 1
             iteration = state.total_iterations
             print(f'\n{"─"*65}')
@@ -931,6 +1066,15 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 else:
                     print('\n[Orchestrator] Approved! Saving outputs...')
                 save_outputs(best_cr, best_nr, best_clf, self.bus)
+                self._persist_case_memory(
+                    state=state,
+                    raw_df=raw_df,
+                    raw_data_path=raw_data_path or features_path,
+                    best_cr=best_cr,
+                    best_clf=best_clf,
+                    run_history=run_history,
+                    status='success',
+                )
                 self._print_timing_summary()
                 self.bus.emit(
                     'pipeline_complete',
@@ -1000,6 +1144,15 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 state.best_naming_result,
                 best_clf,
                 self.bus,
+            )
+            self._persist_case_memory(
+                state=state,
+                raw_df=raw_df,
+                raw_data_path=raw_data_path or features_path,
+                best_cr=state.best_clustering_result,
+                best_clf=best_clf,
+                run_history=run_history,
+                status='max_iterations_reached',
             )
             self.bus.emit(
                 'pipeline_complete',
@@ -1284,9 +1437,10 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                     f"sil={h.get('silhouette','?')}, issues={h.get('issues','[]')}"
                 )
             elif stage == 'classifier':
-                f1 = h.get('cv_f1_macro', 0)
+                f1 = h.get('cv_f1_macro')
+                f1_str = f"{f1:.3f}" if isinstance(f1, (int, float)) else "n/a"
                 history_lines.append(
-                    f"  Iter {it} Classifier: f1_macro={f1:.3f}, action={h.get('action','?')}"
+                    f"  Iter {it} Classifier: f1_macro={f1_str}, action={h.get('action','?')}"
                 )
 
         best_sil_str = (
@@ -1319,8 +1473,24 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
         except Exception as _exc:  # noqa: BLE001
             print(f'  [Orchestrator] (no UI feedback memory loaded: {_exc})')
 
+        # ── Case-memory hint (HINT-ONLY — LLM may ignore) ──────────────────
+        # If find_case() matched a prior successful run, render it as a
+        # paragraph the tuning LLM can use as a starting point. For 'similar'
+        # matches the block explicitly warns this is NOT the same case.
+        case_preamble = ''
+        if getattr(state, 'case_recall', None) is not None:
+            try:
+                from skills.case_memory import build_hint_block
+                case_preamble = build_hint_block(state.case_recall) + '\n'
+                print(
+                    f'  [Orchestrator] Injected case-memory hint block '
+                    f'(match={state.case_recall.match_type}) into tuning prompt.'
+                )
+            except Exception as _exc:  # noqa: BLE001
+                print(f'  [Orchestrator] (case-memory hint render failed: {_exc})')
+
         cur = state.tuning_params
-        prompt = prefs_preamble + f"""You are orchestrating a customer-clustering pipeline. Iteration {iteration} just failed.
+        prompt = prefs_preamble + case_preamble + f"""You are orchestrating a customer-clustering pipeline. Iteration {iteration} just failed.
 
 Current parameters:
   vif_threshold  : {cur.get('vif_threshold', 10.0)}   (higher = keep more correlated features; range 5–25)
@@ -1406,6 +1576,144 @@ Return ONLY a valid JSON object — no markdown fences, no extra text:
         if reasoning:
             print(f'  [Orchestrator] Reasoning: {reasoning}')
         return result
+
+    # ── Case-memory persistence ────────────────────────────────────────────────
+    def _persist_case_memory(
+        self,
+        *,
+        state,
+        raw_df,
+        raw_data_path: str,
+        best_cr,
+        best_clf,
+        run_history: list[dict],
+        status: str,
+    ) -> None:
+        """Save the winning iteration's recipe to the decision-maker case book.
+
+        Called on success (human-approve) and on max-iterations-reached when a
+        usable best result exists. Failures here are non-fatal — we never want
+        a memory-write to derail a successful run.
+        """
+        try:
+            from skills.case_memory import save_case
+
+            ui = state.user_intent
+            # Recover the feature list that produced the winning clustering.
+            features_used = list(state.best_silhouette_features) \
+                if getattr(state, 'best_silhouette_features', None) else \
+                list(state.selected_features or [])
+
+            # Track which tuning params were live when the best run completed.
+            tp = dict(state.tuning_params or {})
+
+            # Lessons learned — derived mechanically from run_history.
+            lessons: list[str] = []
+            algo_seen = []
+            singleton_iters = []
+            relax_steps = 0
+            vif_changes = []
+            for h in run_history:
+                if h.get('stage') == 'clustering':
+                    a = h.get('algorithm') or h.get('algo_name')
+                    if a:
+                        algo_seen.append(a)
+                    if h.get('singleton_merges'):
+                        singleton_iters.append(h.get('iteration'))
+                if h.get('stage') == 'tuning' and h.get('vif_threshold') is not None:
+                    vif_changes.append(h.get('vif_threshold'))
+                if 'silhouette_target_new' in h:
+                    relax_steps += 1
+
+            winning_algo = getattr(best_cr, 'algo_name', '') or (algo_seen[-1] if algo_seen else '')
+            lessons.append(
+                f"Winning algorithm was '{winning_algo}' "
+                f"(silhouette={getattr(best_cr,'silhouette',None)}, "
+                f"k={getattr(best_cr,'n_leaf',None)})."
+            )
+            if singleton_iters:
+                lessons.append(
+                    f"Singleton-cluster merges fired in iter(s) {singleton_iters} — "
+                    f"watch for tiny clusters when n is small or k is high."
+                )
+            if relax_steps:
+                lessons.append(
+                    f"Silhouette target was relaxed {relax_steps} time(s) before "
+                    f"this dataset converged — expect <0.5 silhouette as normal."
+                )
+            if vif_changes:
+                lessons.append(
+                    f"VIF threshold was tuned across iterations to {vif_changes[-1]} — "
+                    f"useful starting point for similar data."
+                )
+            if getattr(best_clf, 'cv_f1_macro', None) is not None:
+                worst_three = sorted(
+                    (best_clf.per_class_f1 or {}).items(), key=lambda x: x[1]
+                )[:3]
+                if worst_three:
+                    lessons.append(
+                        "Hardest-to-predict personas in the winning run: "
+                        + ", ".join(f"{n}({s:.2f})" for n, s in worst_three)
+                    )
+
+            winning_strategy = {
+                'iteration': getattr(best_cr, 'iteration', None),
+                'total_iterations': len(state.clustering_history or []),
+                'algorithm': winning_algo,
+                'k': getattr(best_cr, 'n_leaf', None),
+                'vif_threshold': tp.get('vif_threshold'),
+                'min_silhouette': tp.get('min_silhouette'),
+                'min_cluster_size': int(self.config.get('min_cluster_size', 5)),
+                'n_features_kept': len(features_used),
+                'selected_features': features_used[:80],   # cap to keep file small
+                'k_scores': {str(k): v for k, v in (getattr(best_cr, 'k_scores', {}) or {}).items()},
+                'feature_focus': tp.get('feature_focus', ''),
+            }
+            outcome = {
+                'status': status,
+                'silhouette': getattr(best_cr, 'silhouette', None),
+                'cv_f1_macro': getattr(best_clf, 'cv_f1_macro', None),
+                'cv_accuracy': getattr(best_clf, 'cv_accuracy', None),
+                'n_leaf_clusters': getattr(best_cr, 'n_leaf', None),
+                'silhouette_target_at_finish': (
+                    state.silhouette_target_override
+                    if state.silhouette_target_override is not None
+                    else float(self.config.get('silhouette_target', 0.5))
+                ),
+            }
+
+            ds_name = pathlib.Path(raw_data_path).name if raw_data_path else 'unknown'
+            cols = list(raw_df.columns) if raw_df is not None else []
+            case_id = save_case(
+                dataset_name=ds_name,
+                dataset_path=raw_data_path,
+                columns=cols,
+                n_rows=len(raw_df) if raw_df is not None else 0,
+                n_cols=len(cols),
+                business_purpose=(ui.business_purpose if ui else ''),
+                target_entity=(ui.target_entity if ui else ''),
+                n_clusters_requested=(getattr(ui, 'n_clusters_requested', None) if ui else None),
+                winning_strategy=winning_strategy,
+                outcome=outcome,
+                lessons=lessons,
+            )
+            print(
+                f'  [Orchestrator] 🧠 Saved case to memory '
+                f'(case_id={case_id[:8]}…, status={status}, '
+                f'algo={winning_algo}, k={winning_strategy["k"]}, '
+                f'F1={outcome["cv_f1_macro"]}).'
+            )
+            self.bus.emit(
+                'case_memory_saved',
+                case_id=case_id,
+                status=status,
+                algorithm=winning_algo,
+                k=winning_strategy['k'],
+                silhouette=outcome['silhouette'],
+                cv_f1_macro=outcome['cv_f1_macro'],
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f'  [Orchestrator] (case-memory save failed: {exc})')
 
     # ── Catalog helpers ────────────────────────────────────────────────────────
 

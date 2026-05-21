@@ -1023,13 +1023,32 @@ Return ONLY a valid JSON object (no markdown, no extra text):
         ], required=False)
 
     def _detect_entity_col(self, df: pd.DataFrame) -> str:
-        return self._resolve_col(df, "entity / ID (the column that identifies each entity being clustered)", [
-            "id", "entity_id", "user_id", "customer_id", "client_id",
-            "account_id", "subject_id", "patient_id", "device_id",
-            "sensor_id", "item_id", "product_id", "order_id",
-            "session_id", "record_id", "uuid", "uid", "pid",
-            "card_number", "cc_num",
-        ], required=True) or df.columns[0]
+        # Prefer a real ID-like column when present. Otherwise fall back to
+        # the auto-injected `_row_id` (loaded by orchestrator._load_df) so
+        # each raw row is treated as one entity — better than falling back
+        # to columns[0] which is often a non-unique field (e.g. 'Date').
+        detected = self._resolve_col(
+            df,
+            "entity / ID (the column that identifies each entity being clustered)",
+            [
+                "id", "entity_id", "user_id", "customer_id", "client_id",
+                "account_id", "subject_id", "patient_id", "device_id",
+                "sensor_id", "item_id", "product_id", "order_id",
+                "session_id", "record_id", "uuid", "uid", "pid",
+                "card_number", "cc_num",
+            ],
+            required=False,
+        )
+        if detected:
+            return detected
+        if "_row_id" in df.columns:
+            print("  [FeatureEngineer] No ID-like column found — using auto-injected `_row_id` "
+                  "(each raw row = one entity).")
+            return "_row_id"
+        # Last-resort fallback (datasets loaded outside _load_df).
+        df.insert(0, "_row_id", range(1, len(df) + 1))
+        print("  [FeatureEngineer] Injected `_row_id` (no ID-like column detected).")
+        return "_row_id"
 
     def _detect_amount_col(self, df: pd.DataFrame) -> str | None:
         return self._resolve_col(df, "value / amount (the primary numeric measure per event)", [

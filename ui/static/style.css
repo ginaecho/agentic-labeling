@@ -1178,6 +1178,27 @@ body.demo-log #live-log-pre {
 .mode-toggle .mode-btn.on[data-mode="interactive"] {
   background: linear-gradient(135deg, var(--warn), #ff9a44);
 }
+.abort-btn {
+  font: inherit; font-size: 11px; font-weight: 600;
+  letter-spacing: .04em;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 95, 95, 0.35);
+  background: rgba(255, 95, 95, 0.08);
+  color: #ff7a7a;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.abort-btn:hover:not(:disabled) {
+  background: rgba(255, 95, 95, 0.18);
+  color: #ff9a9a;
+}
+.abort-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.abort-btn.hidden { display: none; }
+
 .live-status .pill {
   padding: 4px 10px; border-radius: 999px;
   background: var(--panel-2); color: var(--muted);

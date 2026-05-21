@@ -739,6 +739,32 @@ def submit_intent():
     return jsonify({'ok': True, 'intent': cleaned})
 
 
+@app.post('/api/abort')
+def abort_pipeline():
+    """Write an abort flag the Orchestrator picks up at the next iteration
+    boundary. The current iteration finishes (no half-baked state); the run
+    returns with status='aborted'. run_pipeline.py then waits for a new
+    pending_intent.json before starting again — so the user can immediately
+    submit fresh intent in the UI for a clean restart.
+
+    Body: {"reason": "...", "restart": true|false}
+    """
+    payload = request.get_json(silent=True) or {}
+    reason = (payload.get('reason') or 'user_abort').strip() or 'user_abort'
+    restart = payload.get('restart')
+    restart = True if restart is None else bool(restart)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / 'pipeline_abort.json').write_text(
+        json.dumps({
+            'reason': reason,
+            'restart': restart,
+            'requested_at': time.time(),
+        }, indent=2, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    return jsonify({'ok': True, 'reason': reason, 'restart': restart})
+
+
 @app.get('/api/evidence')
 def get_evidence():
     """Aggregated evidence for the Evidence tab: dataset preview, silhouette

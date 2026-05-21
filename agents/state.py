@@ -160,6 +160,11 @@ class PipelineState:
         'feature_focus': '',      # hint injected into FeatureSelector prompt
     })
 
+    # Case-memory recall from skills.case_memory (CaseRecall or None).
+    # Set once at the start of run() and consumed by _ask_parameter_tuning
+    # to render a "prior experience" hint block for the tuning LLM.
+    case_recall: object = None
+
     def update_features(self, fs_result: FeatureSelectionResult) -> None:
         self.selected_features = fs_result.selected_features
         self.needs_feature_selection = False

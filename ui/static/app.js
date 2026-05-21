@@ -2778,11 +2778,41 @@ function handleEvent(e) {
     $('#intent-form-wrap').classList.remove('hidden');
     /* live-sub removed from HTML by user request */
     $('#live-dot').className = 'dot warning';
+    // Pipeline is idle on the intent form — hide the abort button.
+    const abortBtn = $('#abort-btn');
+    if (abortBtn) { abortBtn.classList.add('hidden'); abortBtn.disabled = false; abortBtn.textContent = 'Abort & New Run'; }
     appendLogLine(`[${(e.ts || '').slice(11,19)}] awaiting_intent — pipeline paused for UI`);
     return;
   }
   if (ev === 'agent_report' && e.agent === 'UserInput') {
     $('#intent-form-wrap').classList.add('hidden');
+    // Pipeline just took intent and is starting work — show the abort button.
+    const abortBtn = $('#abort-btn');
+    if (abortBtn) abortBtn.classList.remove('hidden');
+  }
+  if (ev === 'pipeline_complete') {
+    const abortBtn = $('#abort-btn');
+    if (abortBtn) { abortBtn.classList.add('hidden'); abortBtn.disabled = false; abortBtn.textContent = 'Abort & New Run'; }
+    // Re-open the intent form so the user can submit a fresh run without
+    // restarting the script. Without this, run_pipeline.py's wait loop has
+    // no way to receive a new pending_intent.json from the browser.
+    const status = (e.status || '').toLowerCase();
+    if (status === 'blocked' || status === 'aborted'
+        || status === 'success' || status === 'max_iterations_reached'
+        || status === 'best_effort') {
+      const wrap = $('#intent-form-wrap');
+      if (wrap) wrap.classList.remove('hidden');
+      // Reset the submit button so it's clickable for the next run.
+      const sBtn = document.getElementById('intent-submit');
+      if (sBtn) { sBtn.disabled = false; sBtn.textContent = 'Start pipeline'; }
+      // Hint the user with a toast tailored to the status.
+      const msg = (status === 'blocked')
+        ? 'Pipeline blocked — edit the intent (e.g. different dataset) and submit to retry.'
+        : (status === 'aborted')
+        ? 'Pipeline aborted — submit a new intent to start fresh.'
+        : 'Pipeline finished — submit a new intent to start another run, or stay on this page to review the results.';
+      try { toast(msg, status === 'blocked' ? 'warning' : 'info', 6000); } catch (_) {}
+    }
   }
   if (ev === 'run_started' || ev === 'pipeline_started') {
     const newRunId = e.run_id || null;
@@ -3036,6 +3066,24 @@ function renderDataPreview(preview) {
   wrap.classList.remove('hidden');
 }
 
+function wireAbortButton() {
+  const btn = document.getElementById('abort-btn');
+  if (!btn) return;
+  btn.onclick = async () => {
+    if (!confirm('Abort the current run and open the intent form for a fresh start?')) return;
+    btn.disabled = true;
+    btn.textContent = 'Aborting…';
+    try {
+      await api('POST', '/api/abort', { reason: 'user_abort_from_ui', restart: true });
+      toast('Abort signal sent. Current iteration will finish, then the intent form will reopen.', 'success', 5000);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Abort & New Run';
+      toast(`Abort failed: ${e.message}`, 'error', 5000);
+    }
+  };
+}
+
 function wireIntentForm() {
   wireDropZone();
   const btn = document.getElementById('intent-submit');
@@ -3151,6 +3199,7 @@ async function boot() {
   }
 
   wireIntentForm();
+  wireAbortButton();
   wireWarnModal();
   wireDecisionModal();
   wireRelaxModal();

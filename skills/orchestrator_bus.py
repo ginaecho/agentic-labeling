@@ -157,6 +157,45 @@ class OrchestratorBus:
                 print(f"  [Bus] WARNING: could not initialise event log: {exc}")
                 self._event_log_path = None
 
+    def reset_for_new_run(self) -> None:
+        """Reset bus state so a subsequent .run() in the same process starts
+        clean (no stale events, log messages, or LLM queries from the prior
+        run leaking into the UI / cost tallies).
+
+        Called by Orchestrator.run() at the top of each invocation. Replays
+        the same setup as __init__ for the per-run state, including emitting
+        a fresh run_started event with a new run_id (the UI keys off this to
+        wipe its in-browser accumulators)."""
+        self._log.clear()
+        self._query_log.clear()
+        self.run_id = _now_iso()
+        if self._event_log_path is not None:
+            try:
+                self._event_log_path.write_text("", encoding="utf-8")
+                for stale in (
+                    self._event_log_path.parent / "last_upload_preview.json",
+                    self._event_log_path.parent / "pending_intent.json",
+                    self._event_log_path.parent / "pending_decision.json",
+                    self._event_log_path.parent / "pending_target_change.json",
+                    self._event_log_path.parent / "personas.json",
+                    self._event_log_path.parent / "cluster_profiles.json",
+                    self._event_log_path.parent / "cluster_lineage.json",
+                    self._event_log_path.parent / "classifier_metrics.json",
+                    self._event_log_path.parent / "silhouette_curve.json",
+                    self._event_log_path.parent / "persona_summary.txt",
+                    self._event_log_path.parent / "persona_metrics.csv",
+                    self._event_log_path.parent / "agents_conversation.txt",
+                    self._event_log_path.parent / "pipeline_log.json",
+                    self._event_log_path.parent / "pca_iterations.json",
+                ):
+                    try:
+                        stale.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                self.emit("run_started", run_id=self.run_id)
+            except OSError as exc:
+                print(f"  [Bus] WARNING: reset_for_new_run failed: {exc}")
+
     # ── Event streaming (consumed by the UI) ───────────────────────────────────
 
     def emit(self, event_type: str, **payload: Any) -> None:

@@ -20,11 +20,69 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
 
 from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
+
+
+# Regex patterns to extract a "max cluster size" constraint from free-text
+# intent (business_purpose + constraints). Each pattern captures the percentage
+# in group 1. Patterns are tried in order; first match wins.
+_MAX_PCT_PATTERNS = [
+    # "max cluster size 25%", "maximum cluster share of 30%",
+    # "the maximum cluster shall be lower than 20%"
+    re.compile(
+        r"max(?:imum)?\s+cluster\s+(?:size|share|fraction)?\s*"
+        r"(?:of|to|≤|<=?|under|below|less than|lower than|no (?:more|larger|bigger) than|"
+        r"(?:shall|should|must|will|cannot|can't|may not)\s+(?:be\s+)?"
+        r"(?:lower|less|below|under|smaller|no more|no larger|no bigger)"
+        r"(?:\s+than)?|be)?\s*"
+        r"(\d+(?:\.\d+)?)\s*%",
+        re.IGNORECASE,
+    ),
+    # "no cluster larger/bigger/greater than 30%"
+    re.compile(
+        r"no\s+(?:single\s+)?cluster\s+(?:larger|bigger|greater|more)\s+than\s+"
+        r"(\d+(?:\.\d+)?)\s*%",
+        re.IGNORECASE,
+    ),
+    # "cluster size must/should/shall be below 30%"
+    re.compile(
+        r"cluster\s+(?:size|share)\s+(?:must|should|shall|will|cannot|can't)\s+(?:be\s+)?"
+        r"(?:lower\s+than|less\s+than|below|under|≤|<=?)\s*(\d+(?:\.\d+)?)\s*%",
+        re.IGNORECASE,
+    ),
+    # "no cluster over 30%" / "no cluster above 30%"
+    re.compile(
+        r"no\s+cluster\s+(?:over|above|exceeds?|exceeding)\s+(\d+(?:\.\d+)?)\s*%",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _parse_max_cluster_pct(*texts: str) -> Optional[float]:
+    """Scan one or more free-text fields for a 'max cluster size X%' constraint.
+
+    Returns a fraction in (0, 1] (e.g. 25% → 0.25) or None if no match.
+    """
+    blob = " ".join(t for t in texts if t)
+    if not blob:
+        return None
+    for pat in _MAX_PCT_PATTERNS:
+        m = pat.search(blob)
+        if m:
+            try:
+                pct = float(m.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 1.0 <= pct <= 100.0:
+                frac = pct / 100.0
+                if 0.0 < frac <= 1.0:
+                    return round(frac, 4)
+    return None
 
 DEFAULT_DATASET_PATH = "data/raw/fraudTrain.csv"
 PENDING_INTENT_PATH = pathlib.Path("outputs/pending_intent.json")
@@ -47,6 +105,10 @@ class UserIntent:
     must_have_clusters: list = field(default_factory=list)
     """Cluster types that MUST appear in the final result, e.g. ['traveller', 'high-value-product'].
     PersonaNamingAgent will enforce this via the Clarity Gate."""
+    max_cluster_size_pct: Optional[float] = None
+    """Parsed from intent text: 'max cluster size 25%' → 0.25. If set, overrides
+    config['max_cluster_size_pct'] (default 0.40) — Clusterer treats any cluster
+    larger than this as oversized and either sub-clusters or reselects features."""
 
 
 class UserInputAgent:
@@ -183,6 +245,7 @@ class UserInputAgent:
             print(f"  [UserInput] Must-have clusters: {must_have_clusters}")
 
         # ── Summary ───────────────────────────────────────────────────────────
+        max_pct = _parse_max_cluster_pct(business_purpose, constraints)
         intent = UserIntent(
             target_entity=target_entity.strip() or "customers",
             business_purpose=business_purpose.strip(),
@@ -190,6 +253,7 @@ class UserInputAgent:
             constraints=constraints.strip(),
             n_clusters_requested=n_clusters_requested,
             must_have_clusters=must_have_clusters,
+            max_cluster_size_pct=max_pct,
         )
 
         print("\n" + "─" * 65)
@@ -205,6 +269,11 @@ class UserInputAgent:
             print(f"  Clusters wanted  : data-driven (auto-select)")
         if intent.must_have_clusters:
             print(f"  Must-have types  : {', '.join(intent.must_have_clusters)}")
+        if intent.max_cluster_size_pct is not None:
+            print(
+                f"  Max cluster size : {intent.max_cluster_size_pct:.0%} "
+                f"(parsed from intent — overrides default 40%)"
+            )
         print("─" * 65)
 
         # ── Report to orchestrator ────────────────────────────────────────────
@@ -326,6 +395,7 @@ class UserInputAgent:
         else:
             must_have = []
 
+        max_pct = _parse_max_cluster_pct(purpose, constraints)
         return UserIntent(
             target_entity=target,
             business_purpose=purpose,
@@ -333,6 +403,7 @@ class UserInputAgent:
             constraints=constraints,
             n_clusters_requested=n_req,
             must_have_clusters=must_have,
+            max_cluster_size_pct=max_pct,
         )
 
     def _announce(self, intent: "UserIntent", iteration: int = 0) -> None:
@@ -350,6 +421,11 @@ class UserInputAgent:
             print(f"  Clusters wanted  : data-driven (auto-select)")
         if intent.must_have_clusters:
             print(f"  Must-have types  : {', '.join(intent.must_have_clusters)}")
+        if intent.max_cluster_size_pct is not None:
+            print(
+                f"  Max cluster size : {intent.max_cluster_size_pct:.0%} "
+                f"(parsed from intent — overrides default 40%)"
+            )
         print("─" * 65)
 
         self.bus.report(OrchestratorMessage(

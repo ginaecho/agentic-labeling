@@ -228,17 +228,71 @@ if _args.bypass:
     print(f'[run_pipeline] BYPASS mode — synthesized intent: '
           f'target={_args.intent_target!r}  purpose={_args.intent_purpose!r}')
 
-result = orchestrator.run(
-    features_path=_default_features_path,
-    max_total_iterations=_args.max_iterations,
-    skip_user_input=bool(_args.bypass),
-    user_intent=_bypass_intent,
-)
+# Abort/restart loop: the UI can POST /api/abort to write
+# outputs/pipeline_abort.json. The orchestrator picks it up at an iteration
+# boundary and returns status='aborted'. We then wait for the user to submit
+# a new intent (pending_intent.json) and re-run from scratch — orchestrator
+# config is restored from baseline so per-run overrides don't leak.
+def _wait_for_new_intent() -> None:
+    """Block until outputs/pending_intent.json appears (UI re-submits)."""
+    p = pathlib.Path('outputs/pending_intent.json')
+    print('[run_pipeline] Waiting for a new intent from the UI '
+          '(submit via the intent form)... press Ctrl-C to give up.')
+    while not p.exists():
+        time.sleep(0.5)
+    print('[run_pipeline] New intent received — restarting the pipeline.\n')
 
-# ── Bail out if the pipeline was blocked or quit before saving outputs ─────────
-if result.get('status') in ('blocked', 'quit'):
-    print(f"\n[run_pipeline] Pipeline ended with status={result['status']} — no outputs to display.")
-    sys.exit(0)
+
+while True:
+    # After an abort the user submitted a fresh intent via the UI; switch off
+    # bypass for the restarted run so UserInputAgent reads it from disk.
+    _skip_input = bool(_args.bypass) and _bypass_intent is not None
+    _intent = _bypass_intent
+
+    result = orchestrator.run(
+        features_path=_default_features_path,
+        max_total_iterations=_args.max_iterations,
+        skip_user_input=_skip_input,
+        user_intent=_intent,
+    )
+
+    _status = result.get('status')
+
+    # ── Recoverable terminations: keep the UI server alive and let the user
+    # submit a fresh intent. Anything that's NOT an explicit user-driven exit
+    # ("quit") falls through to the restart wait.
+    if _status == 'aborted':
+        if result.get('restart', True):
+            _wait_for_new_intent()
+            _bypass_intent = None   # restart goes through normal intent flow
+            continue
+        print('\n[run_pipeline] Pipeline aborted; restart=false — exiting.')
+        sys.exit(0)
+
+    if _status == 'quit':
+        # User explicitly typed 'quit' at the human checkpoint — exit.
+        print('\n[run_pipeline] Pipeline ended with status=quit — exiting.')
+        sys.exit(0)
+
+    if _status == 'blocked':
+        print(f"\n[run_pipeline] Pipeline blocked (a precondition failed — "
+              f"see log above). Submit a new intent in the UI to try again.")
+        _wait_for_new_intent()
+        _bypass_intent = None
+        continue
+
+    # Sanity check: if the orchestrator returned a success-ish status but the
+    # outputs aren't on disk, treat it as a soft failure and wait for a new
+    # intent rather than killing the UI.
+    if not pathlib.Path('outputs/personas.json').exists():
+        print('\n[run_pipeline] Expected outputs/personas.json after a '
+              f'{_status!r} run, but the file is missing.')
+        print('[run_pipeline] Submit a new intent in the UI to try again.')
+        _wait_for_new_intent()
+        _bypass_intent = None
+        continue
+
+    break
 
 # ── Banner for best-effort fallback ───────────────────────────────────────────
 if result.get('status') == 'best_effort':
@@ -251,10 +305,9 @@ if result.get('status') == 'best_effort':
     print(f'{"⚠" * 65}\n')
 
 # ── Load saved outputs ────────────────────────────────────────────────────────
+# personas.json existence was verified inside the restart loop above; here
+# we trust it.
 _personas_path = pathlib.Path('outputs/personas.json')
-if not _personas_path.exists():
-    print('\n[run_pipeline] outputs/personas.json not found — pipeline may not have completed.')
-    sys.exit(1)
 personas_data      = json.loads(_personas_path.read_text())
 clf_metrics        = json.loads(pathlib.Path('outputs/classifier_metrics.json').read_text()) \
                      if pathlib.Path('outputs/classifier_metrics.json').exists() else {}
@@ -678,9 +731,32 @@ print('  (edits + suggestions are logged to outputs/user_feedback_log.jsonl')
 print('   and replayed to the Decision Maker on every subsequent run.)\n')
 
 if not _args.no_ui:
-    print('  Press Ctrl-C to stop the UI server and exit.')
+    print('  Submit a new intent in the UI to start another run, '
+          'or Ctrl-C to exit.')
+    _intent_path = pathlib.Path('outputs/pending_intent.json')
+    _abort_path = pathlib.Path('outputs/pipeline_abort.json')
+    # Ignore the intent file that was just consumed by this run — only react
+    # to one that appears AFTER this completion message.
+    _baseline_intent_mtime = (
+        _intent_path.stat().st_mtime if _intent_path.exists() else 0.0
+    )
     try:
         while True:
-            time.sleep(3600)
+            time.sleep(1.0)
+            # New intent submitted → re-exec for a fully-fresh restart.
+            if _intent_path.exists() and _intent_path.stat().st_mtime > _baseline_intent_mtime:
+                print('\n[run_pipeline] New intent detected — restarting the pipeline '
+                      'in a fresh process.')
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            # Abort signal arrived → consume it and also restart.
+            if _abort_path.exists():
+                try:
+                    _abort_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                print('\n[run_pipeline] Abort signal received post-completion — '
+                      'waiting for a new intent.')
+                _wait_for_new_intent()
+                os.execv(sys.executable, [sys.executable] + sys.argv)
     except KeyboardInterrupt:
         print('\n[run_pipeline] Shutting down UI. Bye!')
