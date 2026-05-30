@@ -38,6 +38,22 @@ This README context flows downstream to `FeatureEngineerAgent` and `FeatureSelec
   - `algo_hint: str` — `hierarchical | kmeans` based on skewness
   - `warnings: list[str]`
   - `dataset_readme: str` — full text of `README.md` from the dataset folder (`""` if absent)
+  - `modality: str` — `"tabular" | "text"` — detected (or forced via `UserIntent.modality` / config.yaml `modality`)
+  - `text_column: str` — for text modality, the column holding the free-text documents (auto-detected or supplied)
+
+## Modality detection
+
+The agent scores each object/string column by mean token count weighted by
+value uniqueness — free prose is long AND mostly unique. A column with
+`avg_tokens ≥ 8` and `uniqueness ≥ 0.5` is treated as text-dominant; the
+profile then sets `modality='text'` and `text_column=<name>`, and the
+"no numeric columns" hard-block is skipped (the Clusterer will run on
+embedding dims produced downstream by `TextPreparerAgent`).
+
+The user can force the modality via:
+- `UserIntent.modality = 'text' | 'tabular' | 'auto'`
+- `config.yaml: modality: text`
+- `--modality text` on the CLI
 
 ## Communication protocol
 

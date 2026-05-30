@@ -21,6 +21,11 @@ Scores all engineered features using PCA importance and autoencoder reconstructi
 - Orchestrator feedback (free-text)
 - `vif_threshold` override (set dynamically by the Orchestrator per iteration)
 - `feature_focus` hint (injected into the LLM prompt by the Orchestrator)
+- `modality: 'tabular' | 'text'` — defaults to tabular. When `'text'`, the
+  agent **short-circuits**: PCA / autoencoder / VIF are skipped (embeddings
+  from `TextPreparerAgent` are already compact + decorrelated), every
+  embedding column is kept, no LLM call is made, and the same
+  `FeatureSelectionResult` shape is returned so the loop history stays valid.
 
 ## Outputs
 

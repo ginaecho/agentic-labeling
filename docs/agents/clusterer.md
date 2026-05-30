@@ -20,6 +20,13 @@ Selects the clustering algorithm and number of clusters data-driven (via silhoue
 - `UserIntent`
 - `DatasetProfile` (for algorithm recommendation)
 - Orchestrator feedback (tuning params: `k_range`, `algorithm`, `min_silhouette`)
+- `text_artifacts: dict | None` — when present, the agent takes the **text
+  branch**: skip log-transform + `StandardScaler`, L2-normalize the matrix so
+  Euclidean distance becomes cosine, pass `metric='cosine'` to
+  `optimize_k()` + `silhouette_score()`, and build text-mode profiles via
+  `_extract_text_profiles()` (c-TF-IDF distinctive terms + centroid-nearest
+  representative documents). The artifacts dict carries `raw_docs`,
+  `feature_names`, `tfidf`, `tfidf_matrix`, `doc_index`, and `method`.
 
 ## Outputs
 
@@ -35,6 +42,8 @@ Selects the clustering algorithm and number of clusters data-driven (via silhoue
 
 ## Profile structure (per cluster)
 
+**Tabular mode** — values are numeric mean ratios:
+
 ```json
 {
   "n_entities": 1234,
@@ -46,6 +55,27 @@ Selects the clustering algorithm and number of clusters data-driven (via silhoue
   "lineage": { "depth": 0, "parent": null, "siblings": [], "pct_of_parent": 1.0 },
   "algorithm": "kmeans",
   "algo_detail": "KMeans(k=7)"
+}
+```
+
+**Text mode** — same schema, but `top_above_average` / `feature_means` carry
+**c-TF-IDF distinctive-term scores** (term → score) and the profile gains
+`top_terms` + `representative_docs`. The UI, cluster chat, and cross-cluster
+comparison consume the same fields and therefore work for text unchanged.
+
+```json
+{
+  "n_entities": 135,
+  "pct_total": 13.5,
+  "top_above_average": { "car": 51.7, "cars": 24.4, "dealer": 16.5, "engine": 16.0 },
+  "top_below_average": { "people": 0.83, "know": 0.80, "like": 0.78 },
+  "feature_means": { "car": 51.7, "cars": 24.4, "...": "..." },
+  "top_terms": ["car", "cars", "dealer", "engine", "speed", "tires", "ford"],
+  "representative_docs": ["I was wondering if anyone out there could enlighten me ...", "..."],
+  "modality": "text",
+  "lineage": { "...": "..." },
+  "algorithm": "KMeans",
+  "algo_detail": "K-Means | k=5"
 }
 ```
 

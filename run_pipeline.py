@@ -252,6 +252,11 @@ _parser.add_argument('--intent-target', type=str, default='customers',
 _parser.add_argument('--intent-purpose', type=str,
                      default='discover spending personas for marketing',
                      help='Bypass: business purpose')
+_parser.add_argument('--modality', type=str, default=None,
+                     choices=['auto', 'tabular', 'text'],
+                     help='Data modality (overrides config.yaml). text → cluster documents.')
+_parser.add_argument('--text-column', type=str, default=None,
+                     help='For text modality: the column holding documents (else auto-detect).')
 _args, _ = _parser.parse_known_args()
 if _args.bypass:
     _args.no_ui = True
@@ -295,6 +300,15 @@ if not _args.no_ui:
                          daemon=True).start()
 
     _launch_ui_background('127.0.0.1', _args.ui_port)
+
+# CLI overrides for modality routing fold straight into the config dict the
+# Orchestrator reads.
+if _args.modality:
+    config['modality'] = _args.modality
+    print(f'[run_pipeline] Modality set via CLI: {_args.modality}')
+if _args.text_column:
+    config['text_column'] = _args.text_column
+    print(f'[run_pipeline] Text column set via CLI: {_args.text_column}')
 
 _config_data_path = config.get('dataset_path')
 _raw_csv = pathlib.Path('data/raw/fraudTrain.csv')

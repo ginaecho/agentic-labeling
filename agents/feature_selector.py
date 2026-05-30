@@ -87,6 +87,7 @@ class FeatureSelectionAgent:
         iteration: int = 1,
         vif_threshold: float | None = None,
         feature_focus: str = '',
+        modality: str = 'tabular',
     ) -> FeatureSelectionResult:
         """
         Parameters
@@ -108,6 +109,32 @@ class FeatureSelectionAgent:
         -------
         FeatureSelectionResult
         """
+        # ── Text-modality short-circuit ────────────────────────────────────────
+        # Embedding dims (emb_0..emb_n) are already a compact, decorrelated
+        # representation (TruncatedSVD on TF-IDF, or a sentence-transformer
+        # output). PCA / autoencoder / VIF don't apply cleanly and would just
+        # discard useful dims. Keep every embedding column; return the SAME
+        # FeatureSelectionResult shape so the loop + run_history stay valid.
+        if modality == 'text':
+            emb_cols = [c for c in features_df.columns if str(c).startswith('emb_')] \
+                       or list(features_df.columns)
+            print(f'\n[FeatureSelector] Iteration {iteration}  '
+                  f'(text modality — skipping PCA/AE/VIF, keeping all {len(emb_cols)} dims)')
+            return FeatureSelectionResult(
+                selected_features=emb_cols,
+                n_features=len(emb_cols),
+                pca_scores={},
+                ae_scores={},
+                vif_table={},
+                removed_by_vif=[],
+                reasoning=(
+                    f"Text modality: kept all {len(emb_cols)} embedding dimensions "
+                    "(TruncatedSVD / transformer output is already compact and decorrelated; "
+                    "PCA/AE/VIF would just throw away useful signal)."
+                ),
+                iteration=iteration,
+            )
+
         # Resolve effective thresholds — orchestrator may override per-iteration
         effective_vif = vif_threshold if vif_threshold is not None else self.vif_threshold
 

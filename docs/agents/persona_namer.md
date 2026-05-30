@@ -16,10 +16,20 @@ Sends cluster profiles to the LLM (via OrchestratorBus) to generate human-readab
 - `profiles: dict` — from ClusteringAgent; each entry has:
   - `n_entities: int`
   - `pct_total: float`
-  - `top_above_average: dict[str, float]` — top features where cluster is above global mean
-  - `top_below_average: dict[str, float]` — top features where cluster is below global mean
+  - `top_above_average: dict[str, float]` — top features where cluster is above global mean (or **c-TF-IDF distinctive terms** in text mode)
+  - `top_below_average: dict[str, float]` — top features where cluster is below global mean (or **absent-here terms** in text mode)
   - `feature_means: dict[str, float]` — mean value per feature
   - `lineage: dict` — depth, parent, siblings
+  - `modality: str` *(text mode only)* — `"text"`
+  - `top_terms: list[str]` *(text mode only)* — ordered distinctive terms
+  - `representative_docs: list[str]` *(text mode only)* — documents nearest the cluster centroid
+
+When `modality == 'text'` (or `representative_docs` is present), the
+internal `_format_cluster_block()` renders a text-aware prompt with
+`DISTINCTIVE TERMS`, `ABSENT-HERE TERMS`, and `REPRESENTATIVE DOCUMENTS`
+sections instead of the tabular ABOVE/BELOW-AVERAGE numeric layout. The
+output schema (name/tagline/description/traits/confidence) is unchanged,
+so the Clarity Gate, UI, and classifier path stay compatible.
 - `lineage: dict`
 - `tone: str` — one of `easy | professional | data-driven | creative`
 - `user_intent: UserIntent` — used to extract `must_have_clusters` for the LLM prompt and Clarity Gate

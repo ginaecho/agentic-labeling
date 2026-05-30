@@ -109,6 +109,11 @@ class UserIntent:
     """Parsed from intent text: 'max cluster size 25%' → 0.25. If set, overrides
     config['max_cluster_size_pct'] (default 0.40) — Clusterer treats any cluster
     larger than this as oversized and either sub-clusters or reselects features."""
+    modality: str = "auto"
+    """Data modality: 'auto' (detect), 'tabular', or 'text'. Routes the pipeline
+    to FeatureEngineer (tabular) or TextPreparer (text)."""
+    text_column: Optional[str] = None
+    """For text modality: the column holding the documents. None = auto-detect."""
 
 
 class UserInputAgent:

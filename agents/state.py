@@ -109,6 +109,17 @@ class PipelineState:
     user_intent: Optional[UserIntent] = None
     dataset_profile: Optional[DatasetProfile] = None
 
+    # ── Modality routing ─────────────────────────────────────────────────────
+    # Mirrors dataset_profile.modality once detected. The agents key off this
+    # to take the text-specific branch (cosine clustering, c-TF-IDF profiles,
+    # term-based PersonaNamer prompts) without each one re-running detection.
+    modality: str = "tabular"
+    # Stashed by TextPreparerAgent after vectorization. Carries the raw docs
+    # (aligned to embedding row index), the fitted TfidfVectorizer + matrix,
+    # and the embedding method actually used. Downstream stages read this to
+    # build per-cluster distinctive terms + representative documents.
+    text_artifacts: dict = field(default_factory=dict)
+
     # Current feature selection
     selected_features: list[str] = field(default_factory=list)
     needs_feature_selection: bool = True
@@ -158,6 +169,7 @@ class PipelineState:
         'algorithm': None,        # None = use config/auto-select
         'min_silhouette': 0.05,   # hard-block below this; LLM may raise/lower
         'feature_focus': '',      # hint injected into FeatureSelector prompt
+        'text_vectorizer': None,  # text-mode: None=auto / 'tfidf_svd' / 'transformer'
     })
 
     # Case-memory recall from skills.case_memory (CaseRecall or None).

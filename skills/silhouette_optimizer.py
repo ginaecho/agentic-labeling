@@ -55,6 +55,7 @@ def optimize_k(
     random_state: int = 42,
     min_silhouette_warn: float = 0.20,
     verbose: bool = True,
+    metric: str = "euclidean",
 ) -> SilhouetteResult:
     """
     Try each k in k_range, fit the clustering algorithm, compute silhouette,
@@ -123,7 +124,7 @@ def optimize_k(
             scores[k] = -1.0
             continue
 
-        sil = float(silhouette_score(X_scaled, labels))
+        sil = float(silhouette_score(X_scaled, labels, metric=metric))
         scores[k] = round(sil, 4)
         if verbose:
             print(f"    k={k:>3}  silhouette={sil:.4f}")

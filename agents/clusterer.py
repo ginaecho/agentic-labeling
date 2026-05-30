@@ -24,7 +24,7 @@ import pandas as pd
 
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import silhouette_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, normalize
 
 from agents.state import ClusteringResult
 from agents.user_input import UserIntent
@@ -182,6 +182,171 @@ def _extract_profiles(features_df: pd.DataFrame, cluster_labels: pd.Series,
     return profiles
 
 
+def _extract_text_profiles(
+    features_df: pd.DataFrame,
+    cluster_labels: pd.Series,
+    cluster_lineage: dict,
+    X_emb: np.ndarray,
+    text_artifacts: dict,
+    algo_name: str,
+    algo_detail: str,
+    top_terms_k: int = 12,
+    rep_docs_k: int = 3,
+) -> dict:
+    """Text-mode profiles: c-TF-IDF distinctive terms + representative docs.
+
+    Returns profiles in the SAME schema as `_extract_profiles` so the rest of
+    the pipeline (PersonaNamer, UI, cross-cluster comparison) works unchanged:
+
+      - top_above_average ← {term: c_tfidf_score}    (distinctive terms)
+      - feature_means     ← {term: c_tfidf_score}    (same dict, for chips)
+      - top_terms         ← ordered list of distinctive terms
+      - representative_docs ← list of doc strings nearest the cluster centroid
+      - top_below_average ← terms that are notably ABSENT from this cluster
+                            (always present in other clusters but not here)
+
+    c-TF-IDF (class-based TF-IDF, Grootendorst 2020) per term t in cluster c:
+        score(t, c) = tf(t, c) * log(1 + A / sum_c tf(t, c))
+    where tf(t, c) is the summed TF-IDF weight of t across docs in c, and A is
+    the average per-cluster document count. This pulls out terms that are
+    common in cluster c but rare in the rest.
+    """
+    leaf_ids = sorted([c for c, v in cluster_lineage.items() if 'split_into' not in v])
+    n_total = len(features_df)
+    profiles: dict = {}
+
+    tfidf_matrix = text_artifacts.get('tfidf_matrix')
+    feature_names = list(text_artifacts.get('feature_names') or [])
+    raw_docs = list(text_artifacts.get('raw_docs') or [])
+    doc_index = list(text_artifacts.get('doc_index') or [])
+
+    have_tfidf = tfidf_matrix is not None and len(feature_names) > 0
+    have_docs  = len(raw_docs) == len(doc_index) > 0
+
+    # Per-cluster summed TF-IDF (a sparse matrix → dense array per cluster) +
+    # the doc-row index inside the original tfidf_matrix.
+    cluster_sums = {}
+    cluster_doc_rows: dict[int, list[int]] = {}
+    if have_tfidf:
+        # Map cluster_labels.index → tfidf_matrix row position.
+        # tfidf_matrix rows match the order docs were passed to vectorize_text
+        # (i.e. the cleaned subset). text_artifacts['doc_index'] holds the
+        # original DataFrame index for each tfidf row.
+        if doc_index:
+            idx_to_row = {ix: r for r, ix in enumerate(doc_index)}
+        else:
+            idx_to_row = {ix: r for r, ix in enumerate(cluster_labels.index)}
+        for c in leaf_ids:
+            mask = cluster_labels == c
+            rows = [idx_to_row[ix] for ix in cluster_labels.index[mask] if ix in idx_to_row]
+            cluster_doc_rows[c] = rows
+            if rows:
+                cluster_sums[c] = np.asarray(tfidf_matrix[rows].sum(axis=0)).ravel()
+            else:
+                cluster_sums[c] = np.zeros(len(feature_names), dtype=float)
+
+    # Per-cluster centroid in the embedding space (for representative docs).
+    centroids: dict[int, np.ndarray] = {}
+    for c in leaf_ids:
+        mask = cluster_labels == c
+        rows = mask.to_numpy()
+        if rows.any():
+            centroids[c] = X_emb[rows].mean(axis=0)
+        else:
+            centroids[c] = np.zeros(X_emb.shape[1] if X_emb.size else 1, dtype=float)
+
+    avg_docs_per_cluster = max(1.0, n_total / max(len(leaf_ids), 1))
+
+    for c in leaf_ids:
+        mask = cluster_labels == c
+        n_cluster = int(mask.sum())
+        lin = cluster_lineage[c]
+
+        top_above: dict[str, float] = {}
+        top_below: dict[str, float] = {}
+        feature_means: dict[str, float] = {}
+        top_terms: list[str] = []
+
+        if have_tfidf:
+            # c-TF-IDF: penalise terms that appear in many other clusters too.
+            this_sum = cluster_sums[c]
+            other_sum = np.zeros_like(this_sum)
+            for cc in leaf_ids:
+                if cc != c:
+                    other_sum += cluster_sums[cc]
+            # Smooth so terms absent elsewhere don't blow up.
+            denom = other_sum + 1.0
+            scores = this_sum * np.log1p(avg_docs_per_cluster / denom)
+            if scores.size:
+                # Distinctive (present here, rare elsewhere)
+                top_idx = np.argsort(-scores)[:top_terms_k]
+                top_above = {
+                    str(feature_names[i]): round(float(scores[i]), 4)
+                    for i in top_idx if scores[i] > 0
+                }
+                top_terms = list(top_above.keys())
+                # Notably absent: terms that score high in OTHERS but ~0 here.
+                # Use a normalised ratio so we don't pick rare-everywhere terms.
+                other_strength = other_sum / max(other_sum.max(), 1e-9)
+                here_strength  = this_sum / max(this_sum.max(), 1e-9)
+                gap = other_strength - here_strength   # positive → absent here
+                gap_idx = np.argsort(-gap)[:top_terms_k]
+                top_below = {
+                    str(feature_names[i]): round(float(gap[i]), 4)
+                    for i in gap_idx if gap[i] > 0.1
+                }
+                feature_means = top_above   # one dict for both UI chips & prompts
+
+        representative_docs: list[str] = []
+        if have_docs and n_cluster > 0:
+            # Pick the rep_docs_k docs closest to the centroid in cosine space.
+            # X_emb is already L2-normalised in the text branch so dot product
+            # IS cosine similarity.
+            rows = mask.to_numpy()
+            in_cluster_rows = np.where(rows)[0]
+            if in_cluster_rows.size:
+                centroid = centroids[c]
+                norm = np.linalg.norm(centroid)
+                if norm > 0:
+                    centroid = centroid / norm
+                sims = X_emb[in_cluster_rows] @ centroid
+                # Sort descending; take top rep_docs_k. Map back to raw_docs.
+                top_local = in_cluster_rows[np.argsort(-sims)[:rep_docs_k]]
+                # raw_docs is aligned to doc_index. If they match, use that;
+                # otherwise positional indexing.
+                if doc_index and len(raw_docs) == len(doc_index):
+                    for row in top_local:
+                        if 0 <= row < len(raw_docs):
+                            representative_docs.append(raw_docs[row])
+                else:
+                    for row in top_local:
+                        if 0 <= row < len(raw_docs):
+                            representative_docs.append(raw_docs[row])
+
+        profiles[str(c)] = {
+            "n_entities": n_cluster,
+            "pct_total": round(n_cluster / max(n_total, 1) * 100, 1),
+            "top_above_average": top_above,
+            "top_below_average": top_below,
+            "feature_means": feature_means,
+            "feature_relative": {k: 1.0 for k in top_above},  # placeholder for UI
+            "top_terms": top_terms,
+            "representative_docs": [d[:400] for d in representative_docs],
+            "modality": "text",
+            "lineage": {
+                "depth":         lin.get("depth", 0),
+                "parent":        lin.get("parent"),
+                "siblings":      lin.get("siblings", []),
+                "pct_of_parent": lin.get("pct_of_parent", 100.0),
+                "is_sub_cluster": lin.get("is_sub_cluster", False),
+            },
+            "algorithm": algo_name,
+            "algo_detail": algo_detail,
+        }
+
+    return profiles
+
+
 class ClusteringAgent:
     """
     Clusters entities on the selected features and runs the deepening loop.
@@ -214,6 +379,7 @@ class ClusteringAgent:
         config_override: dict | None = None,
         min_silhouette: float | None = None,
         silhouette_target: float | None = None,
+        text_artifacts: dict | None = None,
     ) -> ClusteringResult:
         """
         Parameters
@@ -256,13 +422,27 @@ class ClusteringAgent:
 
         X = features_df[sel].copy()
         X = X.loc[:, ~X.columns.duplicated()]  # guard against duplicate column names
-        log_cols = _detect_log_cols(X)
-        for col in log_cols:
-            X[col] = np.log1p(X[col])
 
-        X = X.select_dtypes(include=[np.number])
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        # Text modality: embeddings are already a clean numeric matrix produced
+        # by TextPreparer. Skip log + StandardScaler (would distort the geometry
+        # the embeddings were trained for) and L2-normalise so Euclidean
+        # distance becomes cosine — silhouette computed with metric='cosine'.
+        text_mode = bool(text_artifacts)
+        sil_metric = 'cosine' if text_mode else 'euclidean'
+
+        if text_mode:
+            X = X.select_dtypes(include=[np.number])
+            X_scaled = normalize(X.to_numpy(dtype=float))
+            print(f'  Text mode: skipped log/StandardScaler; L2-normalised '
+                  f'{X_scaled.shape[0]}×{X_scaled.shape[1]} embedding matrix. '
+                  f'Silhouette metric=cosine.')
+        else:
+            log_cols = _detect_log_cols(X)
+            for col in log_cols:
+                X[col] = np.log1p(X[col])
+            X = X.select_dtypes(include=[np.number])
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
 
         # ── Step 2: Algorithm selection ───────────────────────────────────────
         valid_algos = ('kmeans', 'hierarchical', 'dbscan', 'gmm', 'fuzzy_cmeans')
@@ -315,6 +495,7 @@ class ClusteringAgent:
                     algorithm=algorithm if algorithm in ('kmeans', 'hierarchical') else 'kmeans',
                     k_range=k_range,
                     verbose=True,
+                    metric=sil_metric,
                 )
                 n_clusters = sil_result.best_k
                 k_scores = sil_result.scores
@@ -412,7 +593,7 @@ class ClusteringAgent:
         for c in top_level:
             cluster_lineage[c]['siblings'] = [x for x in top_level if x != c]
 
-        sil = silhouette_score(X_scaled, work_df['cluster'])
+        sil = silhouette_score(X_scaled, work_df['cluster'], metric=sil_metric)
         print(f'  Initial clustering: {len(top_level)} clusters  |  silhouette={sil:.4f}')
 
         # ── Step 5: Deepening loop ─────────────────────────────────────────────
@@ -578,19 +759,30 @@ class ClusteringAgent:
         leaf_ids = sorted([c for c, v in cluster_lineage.items()
                            if 'split_into' not in v and 'merged_into' not in v])
         n_leaf = len(leaf_ids)
-        sil = silhouette_score(X_scaled, work_df['cluster'])
+        sil = silhouette_score(X_scaled, work_df['cluster'], metric=sil_metric)
 
         print(f'  Final: {n_leaf} leaf clusters  |  silhouette={sil:.4f}')
 
         # ── Step 7: Build profiles ─────────────────────────────────────────────
-        profiles = _extract_profiles(
-            features_df=work_df.drop(columns=['cluster']),
-            cluster_labels=work_df['cluster'],
-            cluster_lineage=cluster_lineage,
-            X_scaled=X_scaled,
-            algo_name=algo_name,
-            algo_detail=algo_detail,
-        )
+        if text_mode:
+            profiles = _extract_text_profiles(
+                features_df=work_df.drop(columns=['cluster']),
+                cluster_labels=work_df['cluster'],
+                cluster_lineage=cluster_lineage,
+                X_emb=X_scaled,
+                text_artifacts=text_artifacts or {},
+                algo_name=algo_name,
+                algo_detail=algo_detail,
+            )
+        else:
+            profiles = _extract_profiles(
+                features_df=work_df.drop(columns=['cluster']),
+                cluster_labels=work_df['cluster'],
+                cluster_lineage=cluster_lineage,
+                X_scaled=X_scaled,
+                algo_name=algo_name,
+                algo_detail=algo_detail,
+            )
 
         # ── Step 8: Report to orchestrator ─────────────────────────────────────
         if sil < _min_sil:
