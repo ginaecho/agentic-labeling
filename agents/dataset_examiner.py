@@ -87,6 +87,7 @@ class DatasetExaminerAgent:
         user_intent: UserIntent,
         df: pd.DataFrame | None = None,
         iteration: int = 1,
+        n_rows_source: int | None = None,
     ) -> DatasetProfile | None:
         """
         Profile the dataset and suggest feature groups.
@@ -394,6 +395,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
             issues=warnings,
             metrics={
                 "n_rows": n_rows,
+                **({"n_rows_source": int(n_rows_source)} if n_rows_source and n_rows_source > n_rows else {}),
                 "n_cols": n_cols,
                 "n_numeric_cols": len(numeric_cols),
                 "n_suggested_groups": len(suggested_groups),

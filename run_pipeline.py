@@ -266,8 +266,55 @@ if _args.bypass:
 # activity over Server-Sent Events and auto-switches to the cluster grid
 # when the pipeline completes. Use --no-ui for headless runs.
 if not _args.no_ui:
+    import socket
     import threading
+    import urllib.error
+    import urllib.request
     import webbrowser
+
+    def _is_port_free(host: str, port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, port))
+                return True
+            except OSError:
+                return False
+
+    def _ui_has_cluster_comparison(host: str, port: int) -> bool:
+        """Return False when an old UI server is missing /api/cluster-comparison."""
+        try:
+            req = urllib.request.Request(
+                f'http://{host}:{port}/api/cluster-comparison',
+                data=b'{}',
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            urllib.request.urlopen(req, timeout=2)
+            return True
+        except urllib.error.HTTPError as exc:
+            return exc.code != 404
+        except Exception:
+            return True
+
+    def _resolve_ui_port(host: str, preferred: int) -> int | None:
+        """Pick a port for the UI. None = reuse an existing compatible server."""
+        if _is_port_free(host, preferred):
+            return preferred
+        if _ui_has_cluster_comparison(host, preferred):
+            print(
+                f'[run_pipeline] UI already running at http://{host}:{preferred}/ '
+                f'(includes cross-cluster comparison) — reusing it.'
+            )
+            return None
+        print(
+            f'[run_pipeline] WARNING: port {preferred} is in use by an outdated UI '
+            f'(missing /api/cluster-comparison). Starting a fresh UI on the next free port.'
+        )
+        for port in range(preferred + 1, preferred + 21):
+            if _is_port_free(host, port):
+                return port
+        print(f'[run_pipeline] WARNING: no free UI port near {preferred}; trying {preferred} anyway.')
+        return preferred
 
     def _launch_ui_background(host: str, port: int) -> None:
         try:
@@ -275,6 +322,13 @@ if not _args.no_ui:
         except Exception as _exc:  # noqa: BLE001
             print(f'[run_pipeline] Could not import UI ({_exc}). Continuing headless.')
             return
+
+        resolved = _resolve_ui_port(host, port)
+        if resolved is None:
+            return
+        if resolved != port:
+            print(f'[run_pipeline] UI port {port} unavailable — using {resolved} instead.')
+        port = resolved
 
         def _serve():
             try:

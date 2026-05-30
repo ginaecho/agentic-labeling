@@ -579,6 +579,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             ),
             df=raw_df,
             iteration=0,
+            n_rows_source=len(full_raw_df) if full_raw_df is not None else None,
         )
         self._timings['DatasetExaminer'].append(time.perf_counter() - _t0)
         state.dataset_profile = dataset_profile
@@ -1484,11 +1485,14 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                  for v in row] for row in head.itertuples(index=False, name=None)]
 
         col_stats = []
-        for c in cols[:200]:
-            s = df[c]
+        for i, c in enumerate(cols[:200]):
+            # Positional access: df[c] returns a DataFrame when column names duplicate.
+            s = df.iloc[:, i]
+            if isinstance(s, pd.DataFrame):
+                s = s.iloc[:, 0]
             try:
-                is_numeric = bool(np.issubdtype(s.dtype, np.number))
-            except TypeError:
+                is_numeric = bool(pd.api.types.is_numeric_dtype(s))
+            except (TypeError, AttributeError):
                 is_numeric = False
             entry = {
                 'name': str(c),

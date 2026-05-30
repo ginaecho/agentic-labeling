@@ -152,6 +152,29 @@ main {
   border-style: dashed;
 }
 
+.ev-note {
+  background: linear-gradient(135deg, rgba(122,162,255,0.05), rgba(79,209,161,0.04));
+  border-color: rgba(122,162,255,0.22);
+}
+.ev-note .lead { margin: 0 0 10px; }
+.ev-note-table-wrap { margin-top: 4px; overflow-x: auto; }
+.ev-note-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.ev-note-table th,
+.ev-note-table td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+}
+.ev-note-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.ev-note-table td:last-child { font-variant-numeric: tabular-nums; }
+
 .card {
   background: linear-gradient(180deg, var(--panel) 0%, var(--bg-2) 100%);
   border: 1px solid var(--border);

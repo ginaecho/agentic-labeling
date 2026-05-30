@@ -516,6 +516,16 @@ def get_status():
     return jsonify(_derive_status(_read_events()))
 
 
+@app.get('/api/capabilities')
+def get_capabilities():
+    """Feature flags so the frontend can detect an outdated UI server."""
+    return jsonify({
+        'cluster_comparison': True,
+        'cluster_chat': True,
+        'explain': True,
+    })
+
+
 @app.get('/api/events')
 def get_events():
     return jsonify({'events': _read_events()})

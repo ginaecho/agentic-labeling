@@ -5,6 +5,9 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+/** Minimum interval between automatic full UI re-renders (watchdog + evidence). */
+const UI_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 const state = {
   personas: {},
   profiles: {},
@@ -1189,6 +1192,8 @@ async function renderEvidence() {
   // enriched (suggested feature groups, skewness, missing) when DatasetExaminer runs.
   const dse = outputsState.DatasetExaminer?.latest;
   cards.push(buildDatasetCard(dse, agg.upload_preview));
+  const rowCountNote = buildDatasetRowCountNoteCard(dse, agg.upload_preview);
+  if (rowCountNote) cards.push(rowCountNote);
 
   if (dse) cards.push(buildSkewCard(dse));
   if (outputsState.DatasetExaminer?.history?.length)
@@ -1863,6 +1868,46 @@ function buildPreModellingPreviewCard(snapshots) {
     </div>`;
 }
 
+function buildDatasetRowCountNoteCard(dse, upload) {
+  const m = dse?.metrics || {};
+  const up = upload?.preview || {};
+  const profileRows = m.n_rows ?? up.stats_sample_size ?? null;
+  const fullRows = m.n_rows_source ?? up.n_rows ?? null;
+  const subsampled = fullRows != null && profileRows != null && fullRows > profileRows;
+  if (!subsampled) return '';
+
+  const fmt = (v) => (typeof v === 'number' ? Number(v).toLocaleString() : String(v));
+  const fullLabel = fmt(fullRows);
+  const profileLabel = fmt(profileRows);
+
+  return `
+    <div class="ev-card span2 ev-note">
+      <h3>Why is the row count lower than my file?</h3>
+      <p class="lead">
+        When a raw CSV has more than 50,000 rows, <b>DatasetExaminer</b> profiles a random
+        ${profileLabel}-row sample for speed — it only needs schema, column types, missing rates,
+        and feature-group suggestions. The <b>Dataset profile</b> figure above (${profileLabel} rows)
+        is that sample size, not your full file.
+      </p>
+      <p class="lead">
+        Your full dataset (<b>${fullLabel} rows</b>) is still loaded and passed to
+        <b>FeatureEngineer</b>, which uses every row. After that step, row count reflects
+        <b>entities</b> (e.g. customers or cards), not raw transaction rows — so it will
+        differ again from the source file.
+      </p>
+      <div class="ev-note-table-wrap">
+        <table class="ev-note-table">
+          <thead><tr><th>Step</th><th>Rows used</th></tr></thead>
+          <tbody>
+            <tr><td>DatasetExaminer (profile above)</td><td>${profileLabel} (sample)</td></tr>
+            <tr><td>FeatureEngineer</td><td>${fullLabel} (full file)</td></tr>
+            <tr><td>Clustering</td><td>Engineered entity matrix</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function buildDatasetCard(dse, upload) {
   const m = dse?.metrics || {};
   const up = upload?.preview || {};
@@ -2251,7 +2296,15 @@ function wireComparisonButton() {
         </div>`;
     } catch (e) {
       out.hidden = false;
-      out.innerHTML = `<div class="muted" style="color:var(--bad)">Comparison failed: ${escapeHtml(e.message)}</div>`;
+      const msg = String(e.message || 'unknown error');
+      const staleUi = /not found/i.test(msg);
+      out.innerHTML = staleUi
+        ? `<div class="muted" style="color:var(--bad)">
+            Comparison failed: the UI server is outdated (missing <code>/api/cluster-comparison</code>).
+            Stop the old process on this port and restart <code>python run_pipeline.py</code>,
+            or open the URL printed in the terminal if it moved to a new port (e.g. 5058).
+          </div>`
+        : `<div class="muted" style="color:var(--bad)">Comparison failed: ${escapeHtml(msg)}</div>`;
     } finally {
       btn.disabled = false;
       btn.textContent = 'Compare again';
@@ -2986,30 +3039,6 @@ function handleEvent(e) {
   // Refresh the architecture graph on any event — agent reports AND LLM call
   // starts/finishes so the active-agent + thinking-orchestrator are live.
   setTimeout(applyArchFromEvents, 0);
-  // If the Evidence tab is currently open, refresh it as events arrive. We
-  // CANNOT use a pure debounce here: during a bursty pipeline phase (rapid
-  // llm_call_started/finished pairs) every new event clears the timer and the
-  // tab never re-renders until the burst pauses, which is why users saw the
-  // Data & Evidence cards "freeze" mid-run and only update after manual F5.
-  //
-  // The fix is a hybrid: debounce 250 ms (cheap on quiet periods) but ALSO
-  // schedule a hard-deadline render every 20 s so we always catch up even
-  // during sustained activity — matches the global refresh watchdog cadence
-  // so the page never thrashes more than 3× per minute on bursty SSE.
-  if (!document.getElementById('evidence-view').classList.contains('hidden')) {
-    clearTimeout(window._evRefreshTimer);
-    window._evRefreshTimer = setTimeout(() => {
-      renderEvidence();
-      window._evRefreshDeadline = null;
-    }, 250);
-    if (!window._evRefreshDeadline) {
-      window._evRefreshDeadline = setTimeout(() => {
-        clearTimeout(window._evRefreshTimer);
-        renderEvidence();
-        window._evRefreshDeadline = null;
-      }, 20000);
-    }
-  }
   if (ev === 'silhouette_target_missed') {
     appendLogLine(`[${(e.ts || '').slice(11,19)}] ESCALATION CHECK — silhouette ${Number(e.silhouette || 0).toFixed(3)} < target ${Number(e.target).toFixed(2)} (re-eng ${e.consecutive_failures}/${e.max_failures} · relax ${e.relax_failures || 0}/${e.max_relax_failures || 5})`);
     toast(`Silhouette ${Number(e.silhouette).toFixed(3)} < ${Number(e.target).toFixed(2)} · re-eng ${e.consecutive_failures}/${e.max_failures}`,
@@ -3189,6 +3218,9 @@ function handleEvent(e) {
       }
     }
     appendLogLine(`[${(e.ts || '').slice(11,19)}] ${e.agent} ${status.toUpperCase()} — ${(detail || '').slice(0, 120)}`);
+    if (!document.getElementById('evidence-view').classList.contains('hidden')) {
+      renderEvidence();
+    }
   } else if (ev === 'llm_call_started') {
     noteCallStart(e.agent || 'unknown', e.category || 'pipeline', e);
     renderAskBubble(e);
@@ -3526,13 +3558,11 @@ async function boot() {
   startGlobalRefreshWatchdog();
 }
 
-// Defensive 20-second watchdog that re-renders whichever view is currently
-// visible. Works in BOTH the bare `full` recording and the focused demo
-// recordings: even if the SSE stream goes silent for a stretch (proxy
-// timeout, browser sleeping a background tab, sustained event burst that
-// starves an upstream debounce), the user always sees fresh content because
-// this loop keeps painting. The render functions are idempotent — re-running
-// them with identical state is a no-op cost-wise.
+// Defensive watchdog that re-renders whichever view is currently visible.
+// Works in BOTH the bare `full` recording and the focused demo recordings:
+// even if the SSE stream goes silent, the user sees fresh content periodically.
+// The render functions are idempotent — re-running them with identical state
+// is a no-op cost-wise.
 function startGlobalRefreshWatchdog() {
   if (window._globalRefreshTimer) return;
   window._globalRefreshTimer = setInterval(() => {
@@ -3549,7 +3579,7 @@ function startGlobalRefreshWatchdog() {
         renderGrid();
       }
     } catch (_) { /* render fns are defensive */ }
-  }, 20000);
+  }, UI_REFRESH_INTERVAL_MS);
 }
 
 // ── Demo / recording focus mode ──────────────────────────────────────────
