@@ -42,6 +42,11 @@ class UserIntent:
     must_have_clusters: list = field(default_factory=list)
     """Cluster types that MUST appear in the final result, e.g. ['traveller', 'high-value-product'].
     PersonaNamingAgent will enforce this via the Clarity Gate."""
+    modality: str = "auto"
+    """Data modality: 'auto' (detect), 'tabular', or 'text'. Routes the pipeline
+    to FeatureEngineer (tabular) or TextPreparer (text)."""
+    text_column: Optional[str] = None
+    """For text modality: the column holding the documents. None = auto-detect."""
 
 
 class UserInputAgent:

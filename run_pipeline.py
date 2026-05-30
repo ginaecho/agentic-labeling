@@ -111,7 +111,21 @@ import argparse
 _parser = argparse.ArgumentParser(add_help=False)
 _parser.add_argument('--data', type=str, default=None,
                      help='Path to input CSV/parquet (overrides config.yaml)')
+_parser.add_argument('--modality', type=str, default=None,
+                     choices=['auto', 'tabular', 'text'],
+                     help='Data modality (overrides config.yaml). text → cluster documents.')
+_parser.add_argument('--text-column', type=str, default=None,
+                     help='For text modality: the column holding documents (else auto-detect).')
 _args, _ = _parser.parse_known_args()
+
+# CLI overrides for modality routing fold straight into the config dict the
+# Orchestrator reads.
+if _args.modality:
+    config['modality'] = _args.modality
+    print(f'[run_pipeline] Modality set via CLI: {_args.modality}')
+if _args.text_column:
+    config['text_column'] = _args.text_column
+    print(f'[run_pipeline] Text column set via CLI: {_args.text_column}')
 
 _config_data_path = config.get('dataset_path')
 _raw_csv = pathlib.Path('data/raw/fraudTrain.csv')

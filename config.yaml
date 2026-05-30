@@ -9,6 +9,25 @@
 # Can also be overridden at runtime with: python run_pipeline.py --data <path>
 dataset_path: ~
 
+# ── Data modality ────────────────────────────────────────────────────────────
+# What kind of data is being clustered.
+#   auto     — detect automatically (text if a long free-text column is found)
+#   tabular  — numeric/categorical table → FeatureEngineer path (default behaviour)
+#   text     — articles/documents/reviews → TextPreparer path (embeddings)
+# Override at runtime with: python run_pipeline.py --modality text --text-column body
+modality: auto
+
+# For text modality: the column holding the documents.
+# Leave empty/null to auto-detect the most text-like column.
+text_column: ~
+
+# How to embed text into vectors (text modality only).
+#   auto         — the agent picks per dataset (short text → TF-IDF, long → transformer)
+#   tfidf_svd    — TF-IDF + TruncatedSVD (fast, offline, no extra deps)
+#   transformer  — sentence-transformer embeddings (best semantics; needs
+#                  `sentence-transformers` installed, else falls back to tfidf_svd)
+text_vectorizer: auto
+
 # ── Clustering ────────────────────────────────────────────────────────────────
 
 # Number of customer segments to create.

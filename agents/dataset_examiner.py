@@ -61,6 +61,13 @@ class DatasetProfile:
     Passed downstream to FeatureEngineerAgent and FeatureSelectionAgent
     so the LLM can use domain context from the data provider."""
 
+    modality: str = "tabular"
+    """Detected data modality: 'tabular' or 'text'. Routes the pipeline to
+    FeatureEngineerAgent (tabular) or TextPreparerAgent (text)."""
+
+    text_column: str = ""
+    """For text modality: the column holding the free-text documents."""
+
 
 class DatasetExaminerAgent:
     """
@@ -165,13 +172,41 @@ class DatasetExaminerAgent:
                 column_types[col] = "other"
 
         numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
-        if not numeric_cols:
-            self._report_blocked(
-                iteration,
-                "No numeric columns found — cannot build features",
-                "Profiled column types",
-            )
-            return None
+
+        # ── Modality detection (tabular vs text) ───────────────────────────────
+        # A text-dominant dataset has a free-text column (long, highly-unique
+        # prose). The user can force the modality via user_intent.modality.
+        requested_modality = (getattr(user_intent, "modality", "auto") or "auto").lower()
+        text_column = getattr(user_intent, "text_column", None) or ""
+        detected_text_col = self._detect_text_column(df, hint=text_column or None)
+
+        if requested_modality == "text":
+            modality = "text"
+        elif requested_modality == "tabular":
+            modality = "tabular"
+        else:  # auto
+            modality = "text" if detected_text_col else "tabular"
+
+        if modality == "text":
+            text_column = text_column or detected_text_col or ""
+            if not text_column:
+                self._report_blocked(
+                    iteration,
+                    "Text modality requested but no free-text column found",
+                    "Profiled column types for text content",
+                )
+                return None
+            print(f"  Modality: TEXT  (text column: {text_column!r})")
+        else:
+            print(f"  Modality: TABULAR  ({len(numeric_cols)} numeric columns)")
+            # Tabular path still requires numeric columns to build features.
+            if not numeric_cols:
+                self._report_blocked(
+                    iteration,
+                    "No numeric columns found — cannot build features",
+                    "Profiled column types",
+                )
+                return None
 
         # ── Missing rates ──────────────────────────────────────────────────────
         missing_rates = {col: round(float(df[col].isna().mean()), 4) for col in df.columns}
@@ -309,7 +344,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                 f"High-cardinality columns: {high_card}. "
                 "May need grouping or encoding before use."
             )
-        if len(numeric_cols) < 5:
+        if modality == "tabular" and len(numeric_cols) < 5:
             warnings.append(
                 f"Only {len(numeric_cols)} numeric columns found. "
                 "Feature engineering options are limited."
@@ -333,6 +368,8 @@ Return ONLY a valid JSON object (no markdown, no extra text):
             warnings=warnings,
             algo_hint=algo_hint,
             dataset_readme=dataset_readme,
+            modality=modality,
+            text_column=text_column if modality == "text" else "",
         )
 
         # ── Report to orchestrator ─────────────────────────────────────────────
@@ -375,6 +412,33 @@ Return ONLY a valid JSON object (no markdown, no extra text):
         return profile
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _detect_text_column(df: pd.DataFrame, hint: str | None = None) -> str:
+        """Return the most text-like (free-prose) column, or "" if none.
+
+        Scores object/string columns by mean token count weighted by value
+        uniqueness — free text is long AND mostly unique, unlike a category.
+        """
+        if hint and hint in df.columns:
+            return hint
+        best_col, best_score = "", 0.0
+        sample = df.head(min(len(df), 2000))
+        for col in sample.columns:
+            s = sample[col]
+            if s.dtype != object and str(s.dtype) not in ("string", "category"):
+                continue
+            vals = s.dropna().astype(str)
+            if vals.empty:
+                continue
+            avg_tokens = float(vals.str.split().str.len().mean() or 0)
+            uniqueness = vals.nunique() / max(len(vals), 1)
+            score = avg_tokens * (0.5 + 0.5 * uniqueness)
+            # Require genuinely long + fairly unique text to avoid catching
+            # short categorical labels.
+            if avg_tokens >= 8 and uniqueness >= 0.5 and score > best_score:
+                best_col, best_score = col, score
+        return best_col
 
     def _report_blocked(self, iteration: int, issue: str, what_done: str) -> None:
         self.bus.report(OrchestratorMessage(

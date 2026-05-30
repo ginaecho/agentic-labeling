@@ -34,6 +34,7 @@ from agents.state import HumanDecision, PipelineState
 from agents.user_input import UserInputAgent, UserIntent
 from agents.dataset_examiner import DatasetExaminerAgent
 from agents.feature_engineer import FeatureEngineerAgent, FeatureEngineeringResult
+from agents.text_preparer import TextPreparerAgent
 from agents.feature_selector import FeatureSelectionAgent
 from agents.clusterer import ClusteringAgent
 from agents.persona_namer import PersonaNamingAgent
@@ -328,6 +329,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
         self.input_agent            = UserInputAgent(self.bus)
         self.examiner_agent         = DatasetExaminerAgent(self.bus)
         self.feature_engineer_agent = FeatureEngineerAgent(self.bus)
+        self.text_preparer_agent    = TextPreparerAgent(self.bus)
         self.feature_agent          = FeatureSelectionAgent(
             self.bus,
             ae_bottleneck_cap=config.get('ae_bottleneck_cap', 32),
@@ -416,6 +418,17 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                         f'nor {features_path!r} found on disk.'
                     )
 
+        # ── Inject modality from config when intent leaves it on 'auto' ────────
+        # Lets `modality: text` / `text_column:` in config.yaml (or --modality)
+        # drive routing without the interactive UserInputAgent needing to ask.
+        if state.user_intent is not None:
+            if (getattr(state.user_intent, 'modality', 'auto') or 'auto') == 'auto':
+                state.user_intent.modality = str(
+                    self.config.get('modality', 'auto') or 'auto'
+                ).lower()
+            if not getattr(state.user_intent, 'text_column', None) and self.config.get('text_column'):
+                state.user_intent.text_column = self.config.get('text_column')
+
         # ── Resolve raw data path ──────────────────────────────────────────────
         # user_intent.dataset_path may point to a raw transaction CSV (preferred)
         # or a pre-engineered customer-feature parquet (backward compat).
@@ -480,6 +493,56 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             'suggested_groups': dataset_profile.suggested_feature_groups,
             'algo_hint': dataset_profile.algo_hint,
         })
+
+        # ── Step 2a: TEXT modality — TextPreparer replaces FeatureEngineer ─────
+        # When the dataset is text-dominant, vectorize the documents into an
+        # embedding matrix. That matrix is a plain numeric feature table, so the
+        # SAME FeatureSelector → Clusterer → PersonaNamer → Classifier loop and
+        # its control gates run unchanged on it.
+        modality = getattr(dataset_profile, 'modality', 'tabular')
+        if modality == 'text':
+            print('\n[Orchestrator] Text modality — launching TextPreparerAgent...')
+            self._active_agent = 'TextPreparer'
+            _t0 = time.perf_counter()
+            source_df = full_raw_df if full_raw_df is not None else features_df
+            _tv = str(self.config.get('text_vectorizer', 'auto') or 'auto').lower()
+            try:
+                features_df, tp_result = self.text_preparer_agent.run(
+                    raw_df=source_df,
+                    user_intent=state.user_intent or UserIntent(
+                        target_entity='documents',
+                        business_purpose='discover distinct themes in the documents',
+                        dataset_path=raw_data_path or features_path,
+                    ),
+                    dataset_profile=dataset_profile,
+                    output_path='data/processed/text_embeddings.parquet',
+                    iteration=0,
+                    method=_tv if _tv in ('tfidf_svd', 'transformer') else None,
+                )
+            except RuntimeError as e:
+                print(f'\n[Orchestrator] TextPreparer BLOCKED: {e}')
+                return {'status': 'blocked', 'personas': None, 'run_history': run_history}
+            self._timings['TextPreparer'].append(time.perf_counter() - _t0)
+            # Stash text artifacts (tfidf vocab, raw docs) for text-aware labelling.
+            state.text_prep = tp_result  # type: ignore[attr-defined]
+            need_feature_engineering = False
+
+            # Relax control gates for text: topic clusters are fuzzier than
+            # tabular RFM clusters, so the same thresholds would loop needlessly.
+            state.tuning_params['min_silhouette'] = 0.01
+            self.classifier_agent.F1_THRESHOLD = 0.60
+            print('  [Orchestrator] Text mode gates relaxed: '
+                  'min_silhouette=0.01, classifier F1 threshold=0.60')
+
+            run_history.append({
+                'iteration': 0,
+                'stage': 'text_preparation',
+                'n_docs': tp_result.n_docs,
+                'n_dims': tp_result.n_dims,
+                'method': tp_result.method,
+                'text_column': tp_result.text_column,
+                'elapsed_s': round(self._timings['TextPreparer'][-1], 1),
+            })
 
         # ── Step 2: Feature Engineering (only when a raw CSV was provided) ─────
         # When the user gave a .csv path, the FeatureEngineerAgent turns the
