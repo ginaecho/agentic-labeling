@@ -294,13 +294,15 @@ function renderDetail() {
       <label style="color:var(--good)">Discuss with agent (multi-turn · naming ledger)</label>
       <p class="muted" style="margin:4px 0 8px;font-size:11.5px">
         Ask why a trait was chosen, challenge a feature interpretation, or
-        explore alternatives. Each reply lands in the <b>Naming discussions</b>
-        ledger, separate from the pipeline cost.
+        compare this cluster with another (e.g. <i>"why are clusters 0 and 3
+        both high-spend, but 0 leans X while 3 leans Y?"</i>) — the agent can
+        see every cluster's numbers. Each reply lands in the
+        <b>Naming discussions</b> ledger, separate from the pipeline cost.
       </p>
       <div class="chat-thread" id="chat-thread"></div>
       <div class="chat-input-row">
         <textarea id="chat-input" rows="2"
-          placeholder='e.g. "where does the &quot;kids&quot; conclusion come from? which feature shows that?"'></textarea>
+          placeholder='e.g. "why do clusters 0 and 3 both look high-value but differ? which features?"'></textarea>
         <button class="primary" id="chat-send">Send</button>
       </div>
       <div class="chat-actions">
@@ -1231,6 +1233,9 @@ async function renderEvidence() {
   if (showSavedOutputs) {
     if (agg.silhouette_curve)       cards.push(buildSilhouetteCard(agg.silhouette_curve));
     if (agg.cluster_sizes)          cards.push(buildClusterSizeCard(agg.cluster_sizes));
+    // Cross-cluster comparison / contrasting analysis (LLM, evidence ledger).
+    if (Object.keys(state.personas || {}).length >= 2)
+      cards.push(buildClusterComparisonCard());
     if (agg.lineage)                cards.push(buildLineageCard(agg.lineage));
     if (agg.classifier)             cards.push(buildClassifierCard(agg.classifier));
     if (agg.classifier && agg.classifier.top20_features)
@@ -1254,6 +1259,7 @@ async function renderEvidence() {
   // Lazy-load the outputs file list (separate endpoint)
   loadOutputsFiles();
   wireExplainButtons();
+  wireComparisonButton();
   autoScrollForDemo();
 }
 
@@ -2016,6 +2022,59 @@ function buildClusterSizeCard(sizes) {
         }).join('')}
       </div>
     </div>`;
+}
+
+// Cross-cluster comparison card — an LLM contrasting analysis across ALL
+// clusters at once (the per-cluster chat handles single-cluster questions).
+// The call is lazy (button-triggered) so it only bills the evidence ledger
+// when the user actually asks for it.
+function buildClusterComparisonCard() {
+  const n = Object.keys(state.personas || {}).length;
+  return `
+    <div class="ev-card span2" id="ev-cluster-comparison">
+      <h3>Cross-cluster comparison <span class="iter">${n} clusters · LLM · evidence ledger</span></h3>
+      <p class="lead">A contrasting analysis across every cluster at once — which
+        axes separate them, which pairs look alike on one trait but diverge on
+        another, and which clusters overlap. Runs on demand.</p>
+      <div class="row" style="gap:8px;align-items:flex-start;margin-bottom:8px">
+        <input id="ev-compare-focus" type="text"
+          placeholder="Optional focus, e.g. 'why C0 vs C3 both high-spend differ'"
+          style="flex:1;min-width:220px" />
+        <button class="primary" id="ev-compare-btn">Compare clusters</button>
+      </div>
+      <div id="ev-compare-out" class="explain-out" hidden></div>
+    </div>`;
+}
+
+function wireComparisonButton() {
+  const btn = document.getElementById('ev-compare-btn');
+  if (!btn) return;
+  btn.onclick = async () => {
+    const focus = (document.getElementById('ev-compare-focus')?.value || '').trim();
+    const out = document.getElementById('ev-compare-out');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span>Comparing (evidence ledger)…`;
+    try {
+      const r = await api('POST', '/api/cluster-comparison', {focus});
+      out.hidden = false;
+      out.innerHTML = `
+        <div class="explain-card">
+          <div class="explain-section">
+            <div class="muted">Contrasting analysis across ${r.n_clusters} clusters${r._cached ? ' · cached' : ''}</div>
+            <div style="white-space:pre-wrap;word-break:break-word;line-height:1.5">${escapeHtml(r.comparison || '(no analysis)')}</div>
+          </div>
+          <div class="muted" style="font-size:10.5px;margin-top:6px">
+            ✓ This cost was added to the <b>Evidence</b> ledger (not the Pipeline ledger).
+          </div>
+        </div>`;
+    } catch (e) {
+      out.hidden = false;
+      out.innerHTML = `<div class="muted" style="color:var(--bad)">Comparison failed: ${escapeHtml(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Compare again';
+    }
+  };
 }
 
 function buildClassifierCard(c) {
