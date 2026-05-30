@@ -84,6 +84,47 @@ def _load_profiles() -> dict:
     return {cid: d.get('cluster_stats', {}) for cid, d in _load_personas().items()}
 
 
+def _sorted_cluster_ids(personas: dict) -> list[str]:
+    """Cluster ids in numeric order when possible, else lexical."""
+    return sorted(
+        personas.keys(),
+        key=lambda x: (0, int(x)) if str(x).isdigit() else (1, str(x)),
+    )
+
+
+def _clusters_overview_lines(personas: dict, max_feats: int = 6) -> list[str]:
+    """One compact block per cluster — name, size, and the features it is
+    stronger / weaker in. This roster lets the LLM reason ACROSS clusters
+    (compare, contrast, explain why two clusters that share a high-level trait
+    still diverge) instead of being boxed into a single cluster's numbers."""
+    lines: list[str] = []
+    for ocid in _sorted_cluster_ids(personas):
+        c = personas[ocid]
+        per = c.get('persona', {})
+        st = c.get('cluster_stats', {})
+        fm = st.get('feature_means', {}) or {}
+        above = list((st.get('top_above_average') or {}).items())[:max_feats]
+        below = list((st.get('top_below_average') or {}).items())[:max_feats]
+        above_s = ", ".join(
+            f"{f} ({round(r, 2)}x, mean={round(fm.get(f, 0), 3)})" for f, r in above
+        ) or "—"
+        below_s = ", ".join(
+            f"{f} ({round(r, 2)}x, mean={round(fm.get(f, 0), 3)})" for f, r in below
+        ) or "—"
+        try:
+            pct = float(st.get('pct_total', 0) or 0)
+        except (TypeError, ValueError):
+            pct = 0.0
+        lines.append(
+            f"Cluster {ocid} — \"{per.get('name', '?')}\": {per.get('tagline', '')}\n"
+            f"    size={st.get('n_entities', '?')} ({pct:.1f}%), "
+            f"confidence={per.get('confidence', '?')}/10\n"
+            f"    stronger in: {above_s}\n"
+            f"    weaker in: {below_s}"
+        )
+    return lines
+
+
 # ── Cluster math (for merge) ──────────────────────────────────────────────────
 
 def _n_entities(profile: dict) -> int:
@@ -851,11 +892,14 @@ def cluster_chat():
 
     sys_lines = [
         f"You are a data analyst helping a user understand cluster {cid} from a",
-        f"customer-segmentation pipeline. Answer concretely, cite specific feature",
-        f"names + values when asked WHY a label was chosen. If a trait was inferred",
-        f"from indirect signals, say so — don't invent evidence.",
+        f"customer-segmentation pipeline. Cluster {cid} is the user's CURRENT FOCUS,",
+        f"but you can also reason ACROSS clusters — compare and contrast {cid} with",
+        f"any other cluster the user mentions (a full roster is provided below).",
+        f"Answer concretely, cite specific feature names + values when asked WHY a",
+        f"label was chosen or WHY two clusters differ. If a trait was inferred from",
+        f"indirect signals, say so — don't invent evidence.",
         f"",
-        f"Cluster {cid} — \"{persona.get('name', '?')}\"",
+        f"FOCUS — Cluster {cid} — \"{persona.get('name', '?')}\"",
         f"  Tagline: {persona.get('tagline', '')}",
         f"  Description: {persona.get('description', '')}",
         f"  Traits: {persona.get('traits', [])}",
@@ -868,6 +912,25 @@ def cluster_chat():
         f"FEATURES THIS CLUSTER IS WEAKER IN:",
         *below_lines,
     ]
+
+    # Roster of EVERY cluster so the user can ask cross-cluster questions such as
+    # "why are clusters 0 and 3 both high-spend, but 0 skews X while 3 skews Y?".
+    # Without this the model only sees the focus cluster and cannot contrast.
+    other_lines = _clusters_overview_lines(personas)
+    if len(personas) > 1:
+        sys_lines += [
+            "",
+            "─" * 48,
+            "ALL CLUSTERS IN THIS RUN (use these numbers for cross-cluster",
+            "comparison & contrast — do not guess another cluster's values):",
+            "",
+            *other_lines,
+            "",
+            "When asked to contrast two clusters, point to the SPECIFIC features +",
+            "ratios that diverge, and explain what differs even when they share a",
+            "high-level trait (e.g. both 'high X' but one leans A and the other B).",
+        ]
+
     if mode == 'conclude':
         sys_lines += [
             "",
@@ -959,6 +1022,87 @@ def cluster_chat():
         except Exception:
             out['proposal'] = None
     return jsonify(out)
+
+
+# ── /api/cluster-comparison cache ─────────────────────────────────────────────
+# Cross-cluster contrasting analysis for the Data & Evidence tab. Cached by the
+# set of clusters + focus so repeated opens / multiple browser windows don't
+# re-bill the evidence ledger for an identical request.
+_COMPARE_CACHE: dict = {}
+_COMPARE_CACHE_TTL = 600.0   # seconds
+_COMPARE_CACHE_LOCK = threading.Lock()
+
+
+@app.post('/api/cluster-comparison')
+def cluster_comparison():
+    """LLM-driven CROSS-CLUSTER contrasting analysis across every named cluster.
+
+    Lazy / on-demand (the Data & Evidence tab fires it on a button click) so it
+    never auto-bills. Cost lands on the 'evidence' ledger, separate from the
+    pipeline + naming ledgers.
+    """
+    payload = request.get_json(silent=True) or {}
+    focus = (payload.get('focus') or '').strip()
+
+    personas = _load_personas()
+    if len(personas) < 2:
+        return jsonify({'error': 'Need at least 2 named clusters to compare'}), 400
+
+    # Cache key: cluster ids + names + the optional focus. A rename / merge
+    # changes the key so the analysis refreshes; identical re-opens reuse it.
+    sig = "|".join(
+        f"{cid}:{personas[cid].get('persona', {}).get('name', '')}"
+        for cid in _sorted_cluster_ids(personas)
+    ) + f"||focus={focus}"
+    now = time.time()
+    with _COMPARE_CACHE_LOCK:
+        hit = _COMPARE_CACHE.get(sig)
+        if hit and (now - hit['ts']) < _COMPARE_CACHE_TTL:
+            cached = dict(hit['response'])
+            cached['_cached'] = True
+            return jsonify(cached)
+
+    roster = "\n".join(_clusters_overview_lines(personas, max_feats=8))
+    focus_line = (
+        f"\nThe user wants the comparison focused on: {focus}\n" if focus else ""
+    )
+    prompt = f"""You are a data analyst comparing the customer segments produced by a
+clustering pipeline. Below is EVERY named cluster, its size, and the features it
+is stronger / weaker in versus the overall average.
+
+{roster}
+{focus_line}
+Write a CROSS-CLUSTER COMPARISON / contrasting analysis (not one-cluster-at-a-time
+descriptions). Structure it as short markdown sections / bullets:
+
+1. **Separating axes** — the 1-2 dimensions that best pull the clusters apart.
+2. **Contrasts** — pairs of clusters that look alike on one trait but diverge on
+   another (e.g. "C0 and C3 are both high-X, but C0 leans <feature> while C3
+   leans <feature>"). Always cite the specific feature names + ratios.
+3. **Overlap / merge candidates** — any clusters that look redundant.
+4. **Takeaway** — one or two sentences on how the segmentation hangs together.
+
+Cite cluster ids and feature names from the data above. Do NOT invent features
+that are not listed."""
+
+    from ui.llm_bridge import _load_env_file
+    _load_env_file()
+    if not os.environ.get('ANTHROPIC_API_KEY'):
+        return jsonify({'error': 'ANTHROPIC_API_KEY not set'}), 500
+
+    try:
+        from ui.llm_bridge import make_persona_agent
+        _, bus = make_persona_agent()
+        raw = bus.ask(agent='ClusterComparison',
+                      purpose='cross-cluster contrasting analysis',
+                      prompt=prompt, max_tokens=1300, category='evidence')
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({'error': f'LLM call failed: {exc}'}), 500
+
+    result = {'comparison': raw.strip(), 'n_clusters': len(personas)}
+    with _COMPARE_CACHE_LOCK:
+        _COMPARE_CACHE[sig] = {'response': result, 'ts': now}
+    return jsonify(result)
 
 
 # ── /api/explain dedup cache ──────────────────────────────────────────────────
