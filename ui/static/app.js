@@ -3605,6 +3605,13 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_silhouette_relaxation') {
+    const alreadyAnswered = state.events.some(
+      x => (x.event === 'silhouette_target_relaxed' || x.event === 'threshold_decision_made') && x.iteration === e.iteration
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] RELAX SKIPPED — iter ${e.iteration} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openRelaxModal(e);
     toast('⏸ Pipeline paused — silhouette target needs your input', 'error', 6000);
@@ -3613,6 +3620,13 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_control_gates') {
+    const alreadyAnswered = state.events.some(
+      x => x.event === 'control_gates_tuned' && x.iteration === e.iteration
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] GATES SKIPPED — iter ${e.iteration} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openControlGatesModal(e);
     toast('⏸ Pipeline paused — control gates need your input', 'error', 6000);
@@ -3625,6 +3639,13 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_column_resolution') {
+    const alreadyAnswered = state.events.some(
+      x => x.event === 'columns_resolved' && x.iteration === e.iteration
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] COLUMNS SKIPPED — iter ${e.iteration} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openColumnResolutionModal(e);
     toast('⏸ Pipeline paused — column roles need your input', 'error', 6000);
@@ -3644,6 +3665,13 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_case_recall_decision') {
+    const alreadyAnswered = state.events.some(
+      x => x.event === 'case_memory_decision' && x.case_id === e.case_id
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] RECALL SKIPPED — ${e.case_id?.slice(0,8) || '?'} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openRecallModal(e);
     toast('⏸ Pipeline paused — case memory recall needs your input', 'error', 6000);
@@ -3680,6 +3708,14 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_user_decision') {
+    // Skip stale decision events: already answered, or now in bypass mode.
+    const alreadyAnswered = state.events.some(
+      x => x.event === 'user_decision_received' && x.agent === e.agent && x.iteration === e.iteration
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] DECISION SKIPPED — ${e.agent} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openDecisionModal(e);
     toast(`⏸ Pipeline paused — ${e.agent} needs your decision`, 'error', 6000);
@@ -3692,6 +3728,13 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_threshold_decision') {
+    const alreadyAnswered = state.events.some(
+      x => x.event === 'threshold_decision_made' && x.decision_id === e.decision_id
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] THRESHOLD SKIPPED — ${e.decision_id} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openThresholdModal(e);
     toast('⏸ Pipeline paused — threshold decision needs your input', 'error', 6000);
@@ -3700,6 +3743,13 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_human_checkpoint') {
+    const alreadyAnswered = state.events.some(
+      x => x.event === 'human_checkpoint_resolved' && x.iteration === e.iteration
+    );
+    if (state.currentMode === 'bypass' || alreadyAnswered) {
+      appendLogLine(`[${(e.ts || '').slice(11,19)}] CHECKPOINT SKIPPED — iter ${e.iteration} (bypass=${state.currentMode==='bypass'}, answered=${alreadyAnswered})`);
+      return;
+    }
     showLivePanel(true);
     openCheckpointModal(e);
     toast('⏸ Pipeline paused — human checkpoint needs your approval', 'error', 6000);
