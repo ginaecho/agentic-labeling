@@ -1,4 +1,4 @@
-# Automated Cluster Interpretation with a Multi-Agent Pipeline
+# Agentic Labelling: Automated Cluster Interpretation with a Multi-Agents System
 
 > **The hard part of clustering is not the math — it's the meaning.**
 
