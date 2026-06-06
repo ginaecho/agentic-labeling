@@ -1,0 +1,2609 @@
+[run_pipeline] Logging full output to /Users/tzu-chunchen/Documents/AI/AI_Personalization/outputs/pipeline_run_20260606_202222.txt
+[run_pipeline] Launching live UI at http://127.0.0.1:5057/ (use --no-ui to disable)
+ * Serving Flask app 'ui.app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5057
+[33mPress CTRL+C to quit[0m
+  [Orchestrator] Skill catalog loaded: 12913 chars (skill.md)
+  [Orchestrator] Agent catalog loaded: 20866 chars (agent.md)
+
+=================================================================
+Multi-Agent Clustering & Persona Discovery Pipeline
+=================================================================
+Config       : {'dataset_path': None, 'modality': 'auto', 'text_column': None, 'text_vectorizer': 'auto', 'n_clusters': None, 'clustering_algorithm': 'auto', 'enable_automl_candidate_search': True, 'candidate_search_algorithms': None, 'candidate_search_top_n': 8, 'candidate_stability_repeats': 3, 'candidate_stability_sample_frac': 0.8, 'max_cluster_size_pct': 0.4, 'sub_n_clusters': 3, 'max_depth': 2, 'silhouette_target': 0.5, 'max_reselect_failures': 3, 'max_relax_failures': 3, 'persona_tone': 'easy', 'ae_bottleneck_cap': 32, 'ae_max_iter': 200, 'classifier_model': 'auto', 'text_overrides': {'silhouette_target': 0.18, 'min_silhouette': 0.01, 'classifier_f1_threshold': 0.6, 'per_class_f1_min': 0.3, 'max_cluster_size_pct': 0.6, 'min_cluster_size': 2, 'skip_vif': True, 'skip_correlation': True, 'skip_skewness_check': True, 'preferred_algorithms': ['kmeans', 'hierarchical', 'nmf', 'lda'], 'discouraged_algorithms': ['gmm', 'dbscan', 'fuzzy_cmeans']}, 'bypass_mode': False}
+Features     : data/raw/fraudTrain.csv
+Max iters    : 10
+Classifier F1 threshold: 0.7
+
+=================================================================
+AGENTIC CLUSTERING PIPELINE — Intent Collection
+=================================================================
+
+  [UserInput] Waiting up to 600s for intent from the UI form
+  [UserInput] (open http://127.0.0.1:5057/ and submit the intent form,
+  [UserInput]  or press Ctrl-C to fall back to terminal prompts)
+127.0.0.1 - - [06/Jun/2026 20:22:23] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 20:22:24] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 20:22:24] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 20:22:24] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:22:24] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:22:24] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:22:24] "GET /api/events/stream HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:22:57] "POST /api/upload HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:23:18] "POST /api/intent HTTP/1.1" 200 -
+
+─────────────────────────────────────────────────────────────────
+Captured intent (from UI):
+  Target entity    : customers
+  Business purpose : cluster customers based on their transaction and shopping preferences
+  Dataset path     : data/uploads/fraudTrain_14.csv
+  Clusters wanted  : data-driven (auto-select)
+  Must-have types  : traveller
+  Max run iterations: 5
+─────────────────────────────────────────────────────────────────
+  [Bus] ✓ UserInput (iter 0): SUCCESS — Collected intent from UI: target='customers', purpose='cluster customers based o
+  [Orchestrator] max_total_iterations overridden by user intent: 10 → 5.
+
+Loading raw transaction data: data/uploads/fraudTrain_14.csv
+  1,296,675 transactions × 24 columns
+  (subsampled to 50,000 rows for DatasetExaminer)
+
+[DatasetExaminer] Iteration 0
+  Target entity : customers
+  Purpose       : cluster customers based on their transaction and shopping preferences
+  No README.md found in dataset folder.
+  Shape: 50,000 rows × 24 columns
+  Modality: TABULAR  (12 numeric columns)
+  [DatasetExaminer → Orchestrator] Requesting LLM: suggest feature engineering groups from schema + business purpose (pipeline)
+
+  [Orchestrator] ← DatasetExaminer requests LLM help: suggest feature engineering groups from schema + business purpose (pipeline)
+  [Orchestrator] → DatasetExaminer: LLM answered (in=1738 out=1046 21.62s)
+  [Orchestrator → DatasetExaminer] LLM response received (4540 chars)
+  Suggested feature groups: ['transaction_amount_profile', 'spending_category_behavior', 'temporal_transaction_patterns', 'geographic_mobility', 'demographic_profile', 'fraud_risk_signal', 'merchant_diversity']
+  [Bus] ⚠ DatasetExaminer (iter 0): WARNING — Profiled 50,000×24 dataset. Found 12 numeric cols. LLM suggested 7 feature group
+         Issue: Mean feature skewness=3.3 is high. Log-transform recommended before clustering.
+         Doubt: Suggested groups are based on column names; actual feature buildability depends on data quality. Mean skewness=3.3.
+
+[Orchestrator] Control-gate data-driven defaults:
+  max_cluster_size_pct = 25%
+  sub_n_clusters       = 3
+  max_depth            = 3
+  [Orchestrator → Orchestrator] Requesting LLM: tune control gates from dataset stats (bypass mode) (pipeline)
+
+  [Orchestrator] ← Orchestrator requests LLM help: tune control gates from dataset stats (bypass mode) (pipeline)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from DatasetExaminer (evidence)
+  [Orchestrator → EvidenceExplainer] LLM response received (602 chars)
+127.0.0.1 - - [06/Jun/2026 20:23:52] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator] → Orchestrator: LLM answered (in=1078 out=195 4.92s)
+  [Orchestrator → Orchestrator] LLM response received (720 chars)
+
+[Orchestrator] Control gates tuned by Decision Maker (bypass):
+  max_cluster_size_pct = 28%
+  sub_n_clusters       = 3
+  max_depth            = 3
+  Reasoning: max_cluster_size_pct set to 0.28 because the dataset is at the upper boundary of medium/large (50k rows) with highly skewed features (mean_abs_skewness=3.30), favoring tighter splitting to capture uneven natural groups; sub_n_clusters set to 3 as the dataset size and transaction/shopping segmentation context suggest moderate sub-cluster granularity without over-fragmenting; max_depth set to 3 because the large dataset size and hierarchical customer persona purpose support deeper recursive splitting, and the low PCA explained variance per component (~25% each) suggests meaningful structure beyond the top two dimensions.
+
+[Orchestrator] 🧠 Case-memory recall (EXACT): Same dataset fingerprint: column Jaccard=1.00, row count Δ=0.0%. Business purpose similarity=0.93.
+  [Orchestrator] Prior winning recipe → algo=KMeans, k=8, vif=12.0, features=39.
+  [Orchestrator] BYPASS — auto-applying case recall as a hint (decision=modify).
+  [Orchestrator] 🧠 MODIFY — recall stays as a hint for failure-tuning only.
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/agents/orchestrator.py:2361: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+  parsed = pd.to_datetime(sample, errors='coerce')
+
+[Orchestrator] Column resolution (auto-detect):
+  entity_id  = cc_num
+  timestamp  = trans_date_trans_time
+  amount     = amt
+  category   = category
+
+[Orchestrator] Launching FeatureEngineerAgent on raw transaction data...
+
+[FeatureEngineer] Iteration 0
+  Entity    : customers
+  Purpose   : cluster customers based on their transaction and shopping preferences
+  Resolved  : entity='cc_num'  value='amt'  category='category'  timestamp='trans_date_trans_time'
+  Date range: 2019-01-01 → 2020-06-21
+  Entities  : 983  |  Records: 1,296,675
+  Categories (14): ['entertainment', 'food_dining', 'gas_transport', 'grocery_net', 'grocery_pos', 'health_fitness', 'home', 'kids_pets', 'misc_net', 'misc_pos', 'personal_care', 'shopping_net', 'shopping_pos', 'travel']
+  [FeatureEngineer → Orchestrator] Requesting LLM: design feature engineering plan (behavior × topic × time_window) (pipeline)
+
+  [Orchestrator] ← FeatureEngineer requests LLM help: design feature engineering plan (behavior × topic × time_window) (pipeline)
+127.0.0.1 - - [06/Jun/2026 20:24:13] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:24:13] "GET /api/outputs-files HTTP/1.1" 200 -
+  [Orchestrator] → FeatureEngineer: LLM answered (in=2722 out=1461 27.28s)
+  [Orchestrator → FeatureEngineer] LLM response received (5522 chars)
+
+  [FeatureEngineer] LLM Feature Plan:
+    Strategy  : Customers are clustered by credit card (cc_num), so we aggregate transaction-level data up to the card level. The core b
+    Expected  : ~118 features
+    Builder   : group_aggregate                 → Spending amount broken down by category is the primary behav
+    Builder   : group_trend                     → Trend ratios (recent 6 months vs. prior 12 months) reveal wh
+    Builder   : group_streak                    → Consecutive months of activity in a category signals loyalty
+    Builder   : overall_aggregate               → Overall spend statistics capture total card activity level, 
+    Builder   : frequency_recency               → Transaction frequency and recency directly distinguish activ
+    Builder   : entity_diversity                → Category diversity reveals whether a customer uses the card 
+    Builder   : temporal_patterns               → Time-of-day and day-of-week patterns encode lifestyle — e.g.
+    Builder   : static_attributes               → Gender is a binary demographic anchor that may correlate wit
+
+  [FeatureEngineer] Executing plan — 8 builder(s)...
+
+  Step 1/8: group_aggregate
+    Purpose: Spending amount broken down by category is the primary behavioural signal for di
+    Built  : 210 features  (total so far: 210)
+    Sample : ['count_entertainment_6m', 'sum_entertainment_6m', 'mean_entertainment_6m', 'pct_count_entertainment_6m', 'pct_sum_entertainment_6m'] ...
+  Step 2/8: group_trend
+    Purpose: Trend ratios (recent 6 months vs. prior 12 months) reveal whether a customer's e
+    Built  : 28 features  (total so far: 238)
+    Sample : ['trend_count_entertainment', 'trend_sum_entertainment', 'trend_count_food_dining', 'trend_sum_food_dining', 'trend_count_gas_transport'] ...
+  Step 3/8: group_streak
+    Purpose: Consecutive months of activity in a category signals loyalty and habitual usage.
+    Built  : 8 features  (total so far: 246)
+    Sample : ['streak_food_dining', 'streak_gas_transport', 'streak_grocery_pos', 'streak_grocery_net', 'streak_health_fitness'] ...
+  Step 4/8: overall_aggregate
+    Purpose: Overall spend statistics capture total card activity level, average ticket size,
+    Built  : 24 features  (total so far: 270)
+    Sample : ['sum_amt_3m', 'mean_amt_3m', 'std_amt_3m', 'max_amt_3m', 'median_amt_3m'] ...
+  Step 5/8: frequency_recency
+    Purpose: Transaction frequency and recency directly distinguish active high-frequency spe
+    Built  : 13 features  (total so far: 283)
+    Sample : ['days_since_last', 'event_count_3m', 'active_periods_3m', 'avg_gap_days_3m', 'event_count_6m'] ...
+  Step 6/8: entity_diversity
+    Purpose: Category diversity reveals whether a customer uses the card across many spending
+    Built  : 6 features  (total so far: 289)
+    Sample : ['n_unique_category_6m', 'n_unique_merchant_6m', 'n_unique_city_6m', 'n_unique_category_all', 'n_unique_merchant_all'] ...
+  Step 7/8: temporal_patterns
+    Purpose: Time-of-day and day-of-week patterns encode lifestyle — e.g. night-time shoppers
+    Built  : 12 features  (total so far: 301)
+    Sample : ['pct_morning_6m', 'pct_midday_6m', 'pct_evening_6m', 'pct_night_6m', 'pct_weekend_6m'] ...
+  Step 8/8: static_attributes
+    Purpose: Gender is a binary demographic anchor that may correlate with spending category 
+    Built  : 2 features  (total so far: 303)
+    Sample : ['gender_M', 'city_pop']
+
+  [FeatureEngineer] Plan complete.
+    Final matrix: 983 customers × 303 features
+
+  [FeatureEngineer] Saved 983 customers × 303 features → data/processed/engineered_features.parquet
+  [Bus] ✓ FeatureEngineer (iter 0): SUCCESS — Engineered 303 features for 983 customers from 1,296,675 transactions. Builders 
+         Doubt: Some features may have many zeros for customers with short history. Log-transform recommended before clustering.
+  [Orchestrator] Feature engineering done: 303 features × 983 entities
+  [Orchestrator] Pre-modelling preview saved (stage=feature_engineering, iter 0, 983×303)
+
+─────────────────────────────────────────────────────────────────
+ITERATION 1 / 5
+─────────────────────────────────────────────────────────────────
+
+[FeatureSelector] Iteration 1  (vif_threshold=10.0)
+  Features: 303  |  Entities: 983
+  AE bottleneck=32  (cap=32, max_iter=200)
+127.0.0.1 - - [06/Jun/2026 20:24:33] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:24:33] "GET /api/outputs-files HTTP/1.1" 200 -
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/.venv/lib/python3.13/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (200) reached and the optimization hasn't converged yet.
+  warnings.warn(
+  Running VIF gate (threshold=10.0)...
+  [VIF] Pre-pass: dropping 5 linearly dependent features: ['event_count_6m', 'event_count_12m', 'event_count_all', 'n_unique_city_6m', 'n_unique_city_all']
+  [VIF] Round 1: removing 'active_periods_6m'  VIF=17266.36
+  [VIF] Round 2: removing 'active_periods_12m'  VIF=12519.42
+  [VIF] Round 3: removing 'pct_evening_6m'  VIF=11874.55
+  [VIF] Round 4: removing 'mean_amt_12m'  VIF=9818.03
+  [VIF] Round 5: removing 'count_gas_transport_12m'  VIF=8171.22
+  [VIF] Round 6: removing 'pct_sum_shopping_net_all'  VIF=7503.36
+  [VIF] Round 7: removing 'n_unique_category_6m'  VIF=5723.38
+  [VIF] Round 8: removing 'sum_amt_12m'  VIF=4650.69
+  [VIF] Round 9: removing 'sum_travel_12m'  VIF=4141.69
+  [VIF] Round 10: removing 'active_periods_3m'  VIF=3541.79
+  [VIF] Round 11: removing 'sum_gas_transport_all'  VIF=3385.03
+  [VIF] Round 12: removing 'mean_amt_6m'  VIF=2815.52
+  [VIF] Round 13: removing 'pct_evening_all'  VIF=2274.34
+  [VIF] Round 14: removing 'mean_amt_all'  VIF=2146.92
+  [VIF] Round 15: removing 'sum_grocery_net_all'  VIF=2135.61
+  [VIF] Round 16: removing 'sum_travel_all'  VIF=2092.95
+  [VIF] Round 17: removing 'pct_count_shopping_net_all'  VIF=1979.59
+  [VIF] Round 18: removing 'sum_grocery_pos_12m'  VIF=1893.75
+  [VIF] Round 19: removing 'sum_amt_all'  VIF=1718.33
+  [VIF] Round 20: removing 'sum_misc_pos_all'  VIF=1578.37
+  [VIF] Round 21: removing 'count_home_all'  VIF=1527.93
+  [VIF] Round 22: removing 'pct_sum_shopping_net_12m'  VIF=1368.29
+  [VIF] Round 23: removing 'count_kids_pets_12m'  VIF=1351.48
+  [VIF] Round 24: removing 'count_gas_transport_6m'  VIF=1176.87
+127.0.0.1 - - [06/Jun/2026 20:27:25] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:27:25] "GET /api/outputs-files HTTP/1.1" 200 -
+  [VIF] Round 25: removing 'count_food_dining_all'  VIF=1119.38
+  [VIF] Round 26: removing 'count_personal_care_all'  VIF=1093.86
+  [VIF] Round 27: removing 'count_health_fitness_all'  VIF=1078.07
+  [VIF] Round 28: removing 'count_grocery_net_12m'  VIF=1074.87
+  [VIF] Round 29: removing 'count_entertainment_12m'  VIF=971.41
+  [VIF] Round 30: removing 'mean_gas_transport_6m'  VIF=962.36
+  [VIF] Round 31: removing 'pct_high_amt_all'  VIF=910.09
+  [VIF] Round 32: removing 'median_amt_12m'  VIF=876.33
+  [VIF] Round 33: removing 'active_periods_all'  VIF=813.36
+  [VIF] Round 34: removing 'sum_amt_6m'  VIF=738.38
+  [VIF] Round 35: removing 'pct_sum_shopping_net_6m'  VIF=698.33
+  [VIF] Round 36: removing 'avg_gap_days_12m'  VIF=697.50
+  [VIF] Round 37: removing 'std_amt_12m'  VIF=668.03
+  [VIF] Round 38: removing 'sum_gas_transport_12m'  VIF=642.85
+  [VIF] Round 39: removing 'n_unique_merchant_all'  VIF=586.95
+  [VIF] Round 40: removing 'sum_home_12m'  VIF=585.46
+  [VIF] Round 41: removing 'sum_kids_pets_all'  VIF=565.04
+  [VIF] Round 42: removing 'sum_travel_6m'  VIF=547.16
+  [VIF] Round 43: removing 'sum_misc_pos_12m'  VIF=530.22
+  [VIF] Round 44: removing 'count_shopping_pos_12m'  VIF=527.31
+  [VIF] Round 45: removing 'count_health_fitness_12m'  VIF=453.38
+  [VIF] Round 46: removing 'count_grocery_pos_all'  VIF=447.40
+  [VIF] Round 47: removing 'mean_grocery_pos_12m'  VIF=430.10
+  [VIF] Round 48: removing 'std_amt_6m'  VIF=420.35
+  [VIF] Round 49: removing 'count_shopping_net_12m'  VIF=416.15
+  [VIF] Round 50: removing 'sum_entertainment_all'  VIF=405.80
+  [VIF] Round 51: removing 'count_home_12m'  VIF=395.83
+  [VIF] Round 52: removing 'pct_count_kids_pets_12m'  VIF=388.88
+  [VIF] Round 53: removing 'count_personal_care_12m'  VIF=386.49
+  [VIF] Round 54: removing 'mean_gas_transport_12m'  VIF=385.48
+  [VIF] Round 55: removing 'count_food_dining_12m'  VIF=370.65
+  [VIF] Round 56: removing 'event_count_3m'  VIF=361.46
+  [VIF] Round 57: removing 'median_amt_6m'  VIF=345.40
+  [VIF] Round 58: removing 'n_unique_category_all'  VIF=333.36
+  [VIF] Round 59: removing 'mean_entertainment_6m'  VIF=326.90
+  [VIF] Round 60: removing 'sum_grocery_net_12m'  VIF=324.67
+127.0.0.1 - - [06/Jun/2026 20:30:28] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 20:30:28] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 20:30:28] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 20:30:28] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:30:28] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:30:28] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:30:28] "GET /api/events/stream HTTP/1.1" 200 -
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from DatasetExaminer (evidence)
+  [VIF] Round 61: removing 'trend_count_home'  VIF=319.70
+  [Orchestrator → EvidenceExplainer] LLM response received (671 chars)
+127.0.0.1 - - [06/Jun/2026 20:30:33] "POST /api/explain HTTP/1.1" 200 -
+  [VIF] Round 62: removing 'n_unique_merchant_6m'  VIF=315.03
+  [VIF] Round 63: removing 'count_misc_pos_12m'  VIF=304.82
+  [VIF] Round 64: removing 'count_grocery_pos_12m'  VIF=292.50
+  [VIF] Round 65: removing 'mean_amt_3m'  VIF=286.49
+  [VIF] Round 66: removing 'sum_health_fitness_12m'  VIF=282.60
+  [VIF] Round 67: removing 'count_kids_pets_all'  VIF=278.02
+  [VIF] Round 68: removing 'sum_personal_care_12m'  VIF=277.82
+  [VIF] Round 69: removing 'pct_high_amt_12m'  VIF=264.46
+  [VIF] Round 70: removing 'sum_food_dining_all'  VIF=255.35
+  [VIF] Round 71: removing 'count_misc_net_12m'  VIF=253.93
+  [VIF] Round 72: removing 'pct_count_health_fitness_12m'  VIF=248.70
+  [VIF] Round 73: removing 'count_entertainment_all'  VIF=237.92
+  [VIF] Round 74: removing 'pct_sum_misc_net_all'  VIF=231.50
+  [VIF] Round 75: removing 'count_grocery_net_6m'  VIF=222.29
+  [VIF] Round 76: removing 'pct_sum_gas_transport_12m'  VIF=214.87
+  [VIF] Round 77: removing 'avg_gap_days_6m'  VIF=203.45
+  [VIF] Round 78: removing 'count_gas_transport_all'  VIF=196.76
+  [VIF] Round 79: removing 'count_shopping_pos_all'  VIF=172.19
+  [VIF] Round 80: removing 'mean_kids_pets_12m'  VIF=169.28
+  [VIF] Round 81: removing 'sum_grocery_pos_6m'  VIF=167.08
+  [VIF] Round 82: removing 'mean_health_fitness_12m'  VIF=163.07
+  [VIF] Round 83: removing 'count_shopping_net_all'  VIF=145.18
+  [VIF] Round 84: removing 'sum_home_all'  VIF=142.41
+  [VIF] Round 85: removing 'mean_personal_care_12m'  VIF=139.72
+  [VIF] Round 86: removing 'sum_entertainment_12m'  VIF=135.34
+  [VIF] Round 87: removing 'pct_sum_shopping_pos_12m'  VIF=132.88
+  [VIF] Round 88: removing 'pct_count_grocery_net_12m'  VIF=127.42
+  [VIF] Round 89: removing 'count_home_6m'  VIF=125.98
+  [VIF] Round 90: removing 'pct_sum_grocery_pos_12m'  VIF=121.45
+  [VIF] Round 91: removing 'pct_sum_food_dining_12m'  VIF=114.90
+  [VIF] Round 92: removing 'pct_count_home_12m'  VIF=113.27
+  [VIF] Round 93: removing 'count_grocery_net_all'  VIF=111.27
+  [VIF] Round 94: removing 'count_travel_12m'  VIF=109.60
+  [VIF] Round 95: removing 'sum_misc_pos_6m'  VIF=109.29
+  [VIF] Round 96: removing 'count_kids_pets_6m'  VIF=107.95
+  [VIF] Round 97: removing 'count_misc_net_all'  VIF=106.61
+  [VIF] Round 98: removing 'trend_count_food_dining'  VIF=105.15
+  [VIF] Round 99: removing 'pct_sum_kids_pets_12m'  VIF=104.79
+  [VIF] Round 100: removing 'count_health_fitness_6m'  VIF=101.49
+  [VIF] Round 101: removing 'count_misc_pos_all'  VIF=98.91
+  [VIF] Round 102: removing 'pct_count_grocery_pos_all'  VIF=96.48
+  [VIF] Round 103: removing 'sum_health_fitness_all'  VIF=91.36
+  [VIF] Round 104: removing 'sum_kids_pets_12m'  VIF=90.50
+  [VIF] Round 105: removing 'sum_personal_care_all'  VIF=89.56
+  [VIF] Round 106: removing 'pct_count_gas_transport_6m'  VIF=86.26
+  [VIF] Round 107: removing 'sum_shopping_pos_all'  VIF=84.93
+  [VIF] Round 108: removing 'pct_count_personal_care_12m'  VIF=82.18
+  [VIF] Round 109: removing 'median_amt_all'  VIF=80.00
+  [VIF] Round 110: removing 'pct_sum_gas_transport_all'  VIF=79.84
+  [VIF] Round 111: removing 'count_personal_care_6m'  VIF=79.60
+  [VIF] Round 112: removing 'count_entertainment_6m'  VIF=78.62
+  [VIF] Round 113: removing 'mean_grocery_pos_6m'  VIF=77.83
+  [VIF] Round 114: removing 'max_amt_3m'  VIF=75.75
+  [VIF] Round 115: removing 'sum_food_dining_12m'  VIF=71.61
+  [VIF] Round 116: removing 'pct_sum_misc_pos_12m'  VIF=70.36
+  [VIF] Round 117: removing 'pct_sum_entertainment_12m'  VIF=70.21
+  [VIF] Round 118: removing 'pct_sum_home_12m'  VIF=68.95
+  [VIF] Round 119: removing 'count_food_dining_6m'  VIF=67.70
+  [VIF] Round 120: removing 'trend_sum_gas_transport'  VIF=66.14
+  [VIF] Round 121: removing 'mean_kids_pets_6m'  VIF=63.35
+  [VIF] Round 122: removing 'pct_sum_health_fitness_12m'  VIF=62.64
+  [VIF] Round 123: removing 'pct_high_amt_6m'  VIF=61.25
+  [VIF] Round 124: removing 'mean_grocery_net_all'  VIF=59.36
+  [VIF] Round 125: removing 'pct_sum_misc_net_12m'  VIF=55.71
+  [VIF] Round 126: removing 'pct_sum_grocery_net_12m'  VIF=55.17
+  [VIF] Round 127: removing 'mean_entertainment_all'  VIF=54.57
+  [VIF] Round 128: removing 'trend_count_health_fitness'  VIF=53.85
+  [VIF] Round 129: removing 'pct_sum_travel_all'  VIF=53.68
+  [VIF] Round 130: removing 'mean_personal_care_6m'  VIF=51.45
+  [VIF] Round 131: removing 'pct_count_grocery_pos_6m'  VIF=50.74
+  [VIF] Round 132: removing 'pct_sum_kids_pets_all'  VIF=49.06
+  [VIF] Round 133: removing 'sum_grocery_pos_all'  VIF=47.42
+  [VIF] Round 134: removing 'avg_gap_days_all'  VIF=47.25
+  [VIF] Round 135: removing 'max_amt_12m'  VIF=45.23
+  [VIF] Round 136: removing 'mean_food_dining_12m'  VIF=43.51
+  [VIF] Round 137: removing 'pct_sum_home_all'  VIF=43.22
+  [VIF] Round 138: removing 'count_shopping_pos_6m'  VIF=42.77
+  [VIF] Round 139: removing 'pct_morning_all'  VIF=42.11
+  [VIF] Round 140: removing 'pct_sum_personal_care_12m'  VIF=41.85
+  [VIF] Round 141: removing 'sum_amt_3m'  VIF=41.67
+  [VIF] Round 142: removing 'pct_count_entertainment_all'  VIF=38.84
+  [VIF] Round 143: removing 'mean_shopping_pos_6m'  VIF=38.37
+  [VIF] Round 144: removing 'trend_sum_grocery_pos'  VIF=36.77
+  [VIF] Round 145: removing 'pct_count_food_dining_12m'  VIF=36.53
+  [VIF] Round 146: removing 'mean_shopping_net_6m'  VIF=35.95
+  [VIF] Round 147: removing 'trend_count_grocery_net'  VIF=35.36
+  [VIF] Round 148: removing 'sum_misc_net_12m'  VIF=35.29
+  [VIF] Round 149: removing 'days_since_last'  VIF=34.86
+  [VIF] Round 150: removing 'sum_shopping_net_12m'  VIF=34.32
+  [VIF] Round 151: removing 'pct_sum_health_fitness_all'  VIF=33.92
+  [VIF] Round 152: removing 'mean_travel_6m'  VIF=33.72
+  [VIF] Round 153: removing 'median_amt_3m'  VIF=33.22
+  [VIF] Round 154: removing 'pct_sum_food_dining_all'  VIF=32.65
+  [VIF] Round 155: removing 'pct_count_gas_transport_12m'  VIF=32.26
+  [VIF] Round 156: removing 'count_travel_all'  VIF=31.69
+  [VIF] Round 157: removing 'pct_sum_health_fitness_6m'  VIF=31.53
+  [VIF] Round 158: removing 'count_misc_pos_6m'  VIF=31.37
+  [VIF] Round 159: removing 'mean_misc_net_6m'  VIF=30.84
+  [VIF] Round 160: removing 'max_amt_6m'  VIF=30.51
+  [VIF] Round 161: removing 'sum_shopping_pos_12m'  VIF=30.34
+  [VIF] Round 162: removing 'pct_midday_6m'  VIF=28.81
+  [VIF] Round 163: removing 'std_amt_all'  VIF=28.41
+  [VIF] Round 164: removing 'count_shopping_net_6m'  VIF=27.77
+  [VIF] Round 165: removing 'sum_entertainment_6m'  VIF=27.26
+  [VIF] Round 166: removing 'trend_count_kids_pets'  VIF=27.14
+  [VIF] Round 167: removing 'mean_misc_pos_all'  VIF=26.04
+  [VIF] Round 168: removing 'sum_home_6m'  VIF=25.59
+  [VIF] Round 169: removing 'count_misc_net_6m'  VIF=25.01
+  [VIF] Round 170: removing 'sum_kids_pets_6m'  VIF=24.36
+  [VIF] Round 171: removing 'pct_count_home_all'  VIF=23.99
+  [VIF] Round 172: removing 'pct_count_travel_12m'  VIF=23.81
+  [VIF] Round 173: removing 'pct_sum_grocery_net_all'  VIF=23.71
+  [VIF] Round 174: removing 'pct_sum_gas_transport_6m'  VIF=22.09
+  [VIF] Round 175: removing 'pct_sum_food_dining_6m'  VIF=21.47
+  [VIF] Round 176: removing 'pct_count_entertainment_12m'  VIF=20.84
+  [VIF] Round 177: removing 'pct_sum_personal_care_all'  VIF=19.88
+  [VIF] Round 178: removing 'mean_kids_pets_all'  VIF=19.80
+  [VIF] Round 179: removing 'pct_count_shopping_pos_12m'  VIF=19.68
+  [VIF] Round 180: removing 'mean_misc_pos_6m'  VIF=19.46
+  [VIF] Round 181: removing 'mean_health_fitness_all'  VIF=18.70
+  [VIF] Round 182: removing 'pct_count_shopping_net_12m'  VIF=18.67
+  [VIF] Round 183: removing 'count_grocery_pos_6m'  VIF=17.50
+  [VIF] Round 184: removing 'pct_count_grocery_net_6m'  VIF=16.77
+  [VIF] Round 185: removing 'pct_count_home_6m'  VIF=16.12
+  [VIF] Round 186: removing 'sum_grocery_net_6m'  VIF=15.83
+  [VIF] Round 187: removing 'pct_sum_shopping_pos_6m'  VIF=15.52
+  [VIF] Round 188: removing 'mean_gas_transport_all'  VIF=15.05
+  [VIF] Round 189: removing 'sum_misc_net_6m'  VIF=14.89
+  [VIF] Round 190: removing 'pct_count_misc_pos_12m'  VIF=14.44
+  [VIF] Round 191: removing 'mean_grocery_pos_all'  VIF=14.28
+  [VIF] Round 192: removing 'mean_misc_net_12m'  VIF=14.04
+  [VIF] Round 193: removing 'sum_personal_care_6m'  VIF=13.98
+  [VIF] Round 194: removing 'mean_home_12m'  VIF=13.69
+  [VIF] Round 195: removing 'pct_midday_all'  VIF=13.51
+  [VIF] Round 196: removing 'streak_grocery_pos'  VIF=13.47
+  [VIF] Round 197: removing 'pct_sum_grocery_pos_6m'  VIF=13.27
+  [VIF] Round 198: removing 'sum_health_fitness_6m'  VIF=13.04
+  [VIF] Round 199: removing 'pct_count_food_dining_all'  VIF=12.58
+  [VIF] Round 200: removing 'pct_count_personal_care_6m'  VIF=12.44
+  [VIF] Warning: max_iterations (200) reached.
+  After VIF gate: 98 features  (removed 205)
+  High-correlation pairs (|r|>0.85):
+    mean_travel_12m ↔ mean_travel_all  r=0.913
+    trend_count_personal_care ↔ trend_sum_personal_care  r=0.890
+    mean_grocery_net_6m ↔ mean_grocery_net_12m  r=0.890
+    mean_food_dining_6m ↔ mean_food_dining_all  r=0.889
+    pct_count_kids_pets_6m ↔ pct_count_kids_pets_all  r=0.872
+  [FeatureSelector → Orchestrator] Requesting LLM: select best feature subset from 98 VIF-filtered candidates (pipeline)
+
+  [Orchestrator] ← FeatureSelector requests LLM help: select best feature subset from 98 VIF-filtered candidates (pipeline)
+  [Orchestrator] → FeatureSelector: LLM answered (in=2763 out=710 12.12s)
+  [Orchestrator → FeatureSelector] LLM response received (2044 chars)
+  Selected 42 features.
+  VIF removed: 205  |  Max VIF remaining: 12.30
+  Reasoning: Features were selected to maximize behavioral diversity across spending categories (food, travel, shopping, health, home, kids/pets, gas), temporal trends (trend_sum/count capturing recency dynamics), lifestyle signals (peak_hour, pct_weekend, streak_travel, city_pop, gender_M), and spend magnitude (mean_* features). From each high-correlation pair flagged, only one representative was kept (e.g. mean_travel_all over mean_travel_12m, trend_count_personal_care dropped in favor of trend_sum_personal_care, mean_grocery_net_6m over mean_grocery_net_12m, mean_food_dining_all over mean_food_dining_6m, pct_count_kids_pets_all retained alongside 6m for slight recency contrast). The final 42-feature set spans frequency, magnitude, category mix, time-of-day, recency trends, and demographic dimensions to support distinct and interpretable customer segments.
+  [Bus] ⚠ FeatureSelector (iter 1): WARNING — Scored 303 features (PCA+AE). Removed 205 via VIF gate. LLM selected 42 from 98 
+         Issue: Some features still have VIF > 10.0 (max=12.3).
+         Doubt: 7 high-correlation pairs still present after VIF gate — LLM was asked to avoid both in each pair.
+  [Orchestrator] Pre-modelling preview saved (stage=feature_selection, iter 1, 983×42)
+
+[Clusterer] Iteration 1
+  [AlgoRecommender] → HIERARCHICAL  (confidence=1.00)
+    · n_rows=983 is small → Hierarchical is stable
+    · Scores: hierarchical=1, kmeans=0, dbscan=0, gmm=0, fuzzy_cmeans=0, lda=0, nmf=0, llm_cluster=0
+  Algorithm auto-selected: hierarchical  (confidence=1.00)
+  [AutoMLCandidateSearch] algorithms=['hierarchical', 'kmeans', 'gmm']; k_range=[3, 4, 5, 6, 7, 8, 10, 12, 15]; metric=euclidean
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from FeatureSelector (evidence)
+    hierarchical k=   3  sil=0.6194  DB=0.896  CH=326.3  stability_ari=1.0000  max_pct=0.92  score=46.99
+    hierarchical k=   4  sil=0.1594  DB=1.541  CH=263.8  stability_ari=0.9887  max_pct=0.74  score=30.12
+    hierarchical k=   5  sil=0.1395  DB=1.846  CH=224.9  stability_ari=0.7653  max_pct=0.50  score=32.85
+    hierarchical k=   6  sil=0.1388  DB=1.813  CH=199.3  stability_ari=0.9292  max_pct=0.41  score=41.09
+    hierarchical k=   7  sil=0.1377  DB=2.010  CH=181.5  stability_ari=0.9281  max_pct=0.41  score=39.50
+    hierarchical k=   8  sil=0.1396  DB=1.844  CH=166.8  stability_ari=0.9284  max_pct=0.41  score=39.98
+    hierarchical k=  10  sil=0.1208  DB=1.911  CH=142.3  stability_ari=0.7958  max_pct=0.27  score=35.05
+    hierarchical k=  12  sil=0.1144  DB=1.848  CH=125.7  stability_ari=0.7476  max_pct=0.24  score=33.36
+    hierarchical k=  15  sil=0.1175  DB=1.631  CH=108.1  stability_ari=0.8101  max_pct=0.24  score=35.63
+    kmeans       k=   3  sil=0.6194  DB=0.896  CH=326.3  stability_ari=1.0000  max_pct=0.92  score=46.99
+    kmeans       k=   4  sil=0.1615  DB=1.568  CH=264.5  stability_ari=0.9968  max_pct=0.73  score=30.91
+    kmeans       k=   5  sil=0.1399  DB=1.809  CH=226.1  stability_ari=0.9974  max_pct=0.51  score=38.53
+    kmeans       k=   6  sil=0.1406  DB=1.781  CH=200.4  stability_ari=0.9911  max_pct=0.41  score=42.81
+    kmeans       k=   7  sil=0.1399  DB=1.960  CH=182.9  stability_ari=0.9917  max_pct=0.41  score=41.38
+    kmeans       k=   8  sil=0.1412  DB=1.808  CH=167.9  stability_ari=0.9163  max_pct=0.41  score=39.87
+    kmeans       k=  10  sil=0.1189  DB=1.982  CH=142.9  stability_ari=0.7761  max_pct=0.22  score=34.13
+    kmeans       k=  12  sil=0.1172  DB=1.919  CH=124.7  stability_ari=0.8352  max_pct=0.22  score=35.30
+    kmeans       k=  15  sil=0.1116  DB=2.163  CH=107.3  stability_ari=0.8180  max_pct=0.18  score=32.87
+    gmm          k=   3  sil=0.2350  DB=2.443  CH=132.8  stability_ari=0.3610  max_pct=0.77  score=8.02
+    gmm          k=   4  sil=0.0936  DB=1.433  CH=244.5  stability_ari=0.2775  max_pct=0.82  score=5.22
+    gmm          k=   5  sil=0.1272  DB=1.618  CH=221.7  stability_ari=0.7548  max_pct=0.63  score=26.77
+    gmm          k=   6  sil=0.1258  DB=1.829  CH=192.1  stability_ari=0.8219  max_pct=0.63  score=26.44
+  [Orchestrator → EvidenceExplainer] LLM response received (703 chars)
+127.0.0.1 - - [06/Jun/2026 20:35:30] "POST /api/explain HTTP/1.1" 200 -
+    gmm          k=   7  sil=0.1401  DB=1.960  CH=182.9  stability_ari=0.7144  max_pct=0.41  score=34.51
+    gmm          k=   8  sil=0.1296  DB=2.097  CH=165.7  stability_ari=0.7347  max_pct=0.23  score=33.69
+    gmm          k=  10  sil=0.1226  DB=2.065  CH=131.0  stability_ari=0.8493  max_pct=0.25  score=35.35
+    gmm          k=  12  sil=0.1178  DB=2.172  CH=123.4  stability_ari=0.7579  max_pct=0.18  score=32.09
+    gmm          k=  15  sil=0.1042  DB=2.484  CH=100.3  stability_ari=0.6438  max_pct=0.26  score=26.37
+  AutoML candidate winner: Selected hierarchical k=3 by candidate tournament: silhouette=0.6194, stability_ari=1.0000, max_cluster_pct=0.92, score=46.99.
+  k: 3 (from AutoML candidate search; silhouette=0.6194, stability_ari=1.0000)
+  Initial clustering: 3 clusters  |  silhouette=0.6194
+  Round 1: oversized clusters → [0]
+  [Clusterer → Orchestrator] Requesting LLM: route oversized cluster C0 (92%): sub-cluster or reselect features (pipeline)
+
+  [Orchestrator] ← Clusterer requests LLM help: route oversized cluster C0 (92%): sub-cluster or reselect features (pipeline)
+  [Orchestrator] → Clusterer: LLM answered (in=1346 out=81 2.65s)
+  [Orchestrator → Clusterer] LLM response received (358 chars)
+    LLM recommends re-selecting features: With 92.4% of entities in a single cluster, the current features (sum_amt_all, city_pop, sum_amt_12m) lack sufficient discriminative power to separate meaningful personas. Feature selection should explore additional behavioral or demographic dimensions that can better differentiate the dense majority cluster.
+  [Bus] ✗ Clusterer (iter 1): BLOCKED — Clustered with k=3, ran deepening loop
+         Issue: Cluster 0 has 92.4% of data (>40% threshold)
+         Doubt: Oversized cluster may reflect feature redundancy
+
+[Orchestrator] Clustering → reselect features: With 92.4% of entities in a single cluster, the current features (sum_amt_all, city_pop, sum_amt_12m) lack sufficient discriminative power to separate meaningful personas. Feature selection should explore additional behavioral or demographic dimensions that can better differentiate the dense majority cluster.
+  [Orchestrator] Injected user-preference block into tuning prompt.
+  [Orchestrator] Injected case-memory hint block (match=exact) into tuning prompt.
+
+  [Orchestrator] Asking LLM to tune parameters for iteration 2...
+  [Orchestrator → Orchestrator] Requesting LLM: tune pipeline parameters based on iteration failures (pipeline)
+
+  [Orchestrator] ← Orchestrator requests LLM help: tune pipeline parameters based on iteration failures (pipeline)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Clusterer (evidence)
+  [Orchestrator → EvidenceExplainer] LLM response received (589 chars)
+127.0.0.1 - - [06/Jun/2026 20:35:41] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator] → Orchestrator: LLM answered (in=3248 out=195 5.85s)
+  [Orchestrator → Orchestrator] LLM response received (545 chars)
+  [Orchestrator] Tuned → vif=12.0, algo=kmeans, k_range=[6, 7, 8, 9, 10], min_sil=0.05, text_vec=None
+  [Orchestrator] Reasoning: Replicating the winning recipe from the prior successful run on this identical dataset: KMeans with k=8, vif_threshold=12.0, and min_silhouette=0.05 converged at iteration 2 with silhouette=0.158. Raising vif_threshold from 10 to 12 to reduce over-aggressive VIF removal (205 features dropped), and centering k_range around 8 to efficiently find the proven optimal k.
+
+─────────────────────────────────────────────────────────────────
+ITERATION 2 / 5
+─────────────────────────────────────────────────────────────────
+
+[FeatureSelector] Iteration 2  (vif_threshold=12.0)
+  Feedback from previous round: With 92.4% of entities in a single cluster, the current features (sum_amt_all, city_pop, sum_amt_12m) lack sufficient discriminative power to separate meaningful personas. Feature selection should explore additional behavioral or demographic dimensions that can better differentiate the dense majority cluster.
+  Features: 303  |  Entities: 983
+  AE bottleneck=32  (cap=32, max_iter=200)
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/.venv/lib/python3.13/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (200) reached and the optimization hasn't converged yet.
+  warnings.warn(
+  Running VIF gate (threshold=12.0)...
+  [VIF] Pre-pass: dropping 5 linearly dependent features: ['event_count_6m', 'event_count_12m', 'event_count_all', 'n_unique_city_6m', 'n_unique_city_all']
+  [VIF] Round 1: removing 'active_periods_6m'  VIF=17266.36
+  [VIF] Round 2: removing 'active_periods_12m'  VIF=12519.42
+  [VIF] Round 3: removing 'pct_evening_6m'  VIF=11874.55
+  [VIF] Round 4: removing 'mean_amt_12m'  VIF=9818.03
+  [VIF] Round 5: removing 'count_gas_transport_12m'  VIF=8171.22
+  [VIF] Round 6: removing 'pct_sum_shopping_net_all'  VIF=7503.36
+  [VIF] Round 7: removing 'n_unique_category_6m'  VIF=5723.38
+  [VIF] Round 8: removing 'sum_amt_12m'  VIF=4650.69
+  [VIF] Round 9: removing 'sum_travel_12m'  VIF=4141.69
+  [VIF] Round 10: removing 'active_periods_3m'  VIF=3541.79
+  [VIF] Round 11: removing 'sum_gas_transport_all'  VIF=3385.03
+  [VIF] Round 12: removing 'mean_amt_6m'  VIF=2815.52
+  [VIF] Round 13: removing 'pct_evening_all'  VIF=2274.34
+  [VIF] Round 14: removing 'mean_amt_all'  VIF=2146.92
+  [VIF] Round 15: removing 'sum_grocery_net_all'  VIF=2135.61
+  [VIF] Round 16: removing 'sum_travel_all'  VIF=2092.95
+  [VIF] Round 17: removing 'pct_count_shopping_net_all'  VIF=1979.59
+  [VIF] Round 18: removing 'sum_grocery_pos_12m'  VIF=1893.75
+  [VIF] Round 19: removing 'sum_amt_all'  VIF=1718.33
+  [VIF] Round 20: removing 'sum_misc_pos_all'  VIF=1578.37
+  [VIF] Round 21: removing 'count_home_all'  VIF=1527.93
+  [VIF] Round 22: removing 'pct_sum_shopping_net_12m'  VIF=1368.29
+  [VIF] Round 23: removing 'count_kids_pets_12m'  VIF=1351.48
+  [VIF] Round 24: removing 'count_gas_transport_6m'  VIF=1176.87
+  [VIF] Round 25: removing 'count_food_dining_all'  VIF=1119.38
+  [VIF] Round 26: removing 'count_personal_care_all'  VIF=1093.86
+  [VIF] Round 27: removing 'count_health_fitness_all'  VIF=1078.07
+  [VIF] Round 28: removing 'count_grocery_net_12m'  VIF=1074.87
+  [VIF] Round 29: removing 'count_entertainment_12m'  VIF=971.41
+  [VIF] Round 30: removing 'mean_gas_transport_6m'  VIF=962.36
+127.0.0.1 - - [06/Jun/2026 20:39:13] "POST /api/mode HTTP/1.1" 200 -
+  [VIF] Round 31: removing 'pct_high_amt_all'  VIF=910.09
+  [VIF] Round 32: removing 'median_amt_12m'  VIF=876.33
+  [VIF] Round 33: removing 'active_periods_all'  VIF=813.36
+  [VIF] Round 34: removing 'sum_amt_6m'  VIF=738.38
+  [VIF] Round 35: removing 'pct_sum_shopping_net_6m'  VIF=698.33
+  [VIF] Round 36: removing 'avg_gap_days_12m'  VIF=697.50
+  [VIF] Round 37: removing 'std_amt_12m'  VIF=668.03
+  [VIF] Round 38: removing 'sum_gas_transport_12m'  VIF=642.85
+  [VIF] Round 39: removing 'n_unique_merchant_all'  VIF=586.95
+  [VIF] Round 40: removing 'sum_home_12m'  VIF=585.46
+  [VIF] Round 41: removing 'sum_kids_pets_all'  VIF=565.04
+  [VIF] Round 42: removing 'sum_travel_6m'  VIF=547.16
+  [VIF] Round 43: removing 'sum_misc_pos_12m'  VIF=530.22
+  [VIF] Round 44: removing 'count_shopping_pos_12m'  VIF=527.31
+127.0.0.1 - - [06/Jun/2026 20:40:29] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:40:29] "GET /api/outputs-files HTTP/1.1" 200 -
+  [VIF] Round 45: removing 'count_health_fitness_12m'  VIF=453.38
+  [VIF] Round 46: removing 'count_grocery_pos_all'  VIF=447.40
+  [VIF] Round 47: removing 'mean_grocery_pos_12m'  VIF=430.10
+  [VIF] Round 48: removing 'std_amt_6m'  VIF=420.35
+  [VIF] Round 49: removing 'count_shopping_net_12m'  VIF=416.15
+  [VIF] Round 50: removing 'sum_entertainment_all'  VIF=405.80
+  [VIF] Round 51: removing 'count_home_12m'  VIF=395.83
+  [VIF] Round 52: removing 'pct_count_kids_pets_12m'  VIF=388.88
+  [VIF] Round 53: removing 'count_personal_care_12m'  VIF=386.49
+  [VIF] Round 54: removing 'mean_gas_transport_12m'  VIF=385.48
+  [VIF] Round 55: removing 'count_food_dining_12m'  VIF=370.65
+  [VIF] Round 56: removing 'event_count_3m'  VIF=361.46
+  [VIF] Round 57: removing 'median_amt_6m'  VIF=345.40
+  [VIF] Round 58: removing 'n_unique_category_all'  VIF=333.36
+  [VIF] Round 59: removing 'mean_entertainment_6m'  VIF=326.90
+  [VIF] Round 60: removing 'sum_grocery_net_12m'  VIF=324.67
+  [VIF] Round 61: removing 'trend_count_home'  VIF=319.70
+  [VIF] Round 62: removing 'n_unique_merchant_6m'  VIF=315.03
+  [VIF] Round 63: removing 'count_misc_pos_12m'  VIF=304.82
+  [VIF] Round 64: removing 'count_grocery_pos_12m'  VIF=292.50
+  [VIF] Round 65: removing 'mean_amt_3m'  VIF=286.49
+  [VIF] Round 66: removing 'sum_health_fitness_12m'  VIF=282.60
+  [VIF] Round 67: removing 'count_kids_pets_all'  VIF=278.02
+  [VIF] Round 68: removing 'sum_personal_care_12m'  VIF=277.82
+  [VIF] Round 69: removing 'pct_high_amt_12m'  VIF=264.46
+  [VIF] Round 70: removing 'sum_food_dining_all'  VIF=255.35
+  [VIF] Round 71: removing 'count_misc_net_12m'  VIF=253.93
+  [VIF] Round 72: removing 'pct_count_health_fitness_12m'  VIF=248.70
+  [VIF] Round 73: removing 'count_entertainment_all'  VIF=237.92
+  [VIF] Round 74: removing 'pct_sum_misc_net_all'  VIF=231.50
+  [VIF] Round 75: removing 'count_grocery_net_6m'  VIF=222.29
+  [VIF] Round 76: removing 'pct_sum_gas_transport_12m'  VIF=214.87
+  [VIF] Round 77: removing 'avg_gap_days_6m'  VIF=203.45
+  [VIF] Round 78: removing 'count_gas_transport_all'  VIF=196.76
+  [VIF] Round 79: removing 'count_shopping_pos_all'  VIF=172.19
+  [VIF] Round 80: removing 'mean_kids_pets_12m'  VIF=169.28
+  [VIF] Round 81: removing 'sum_grocery_pos_6m'  VIF=167.08
+  [VIF] Round 82: removing 'mean_health_fitness_12m'  VIF=163.07
+  [VIF] Round 83: removing 'count_shopping_net_all'  VIF=145.18
+  [VIF] Round 84: removing 'sum_home_all'  VIF=142.41
+  [VIF] Round 85: removing 'mean_personal_care_12m'  VIF=139.72
+  [VIF] Round 86: removing 'sum_entertainment_12m'  VIF=135.34
+  [VIF] Round 87: removing 'pct_sum_shopping_pos_12m'  VIF=132.88
+  [VIF] Round 88: removing 'pct_count_grocery_net_12m'  VIF=127.42
+  [VIF] Round 89: removing 'count_home_6m'  VIF=125.98
+  [VIF] Round 90: removing 'pct_sum_grocery_pos_12m'  VIF=121.45
+  [VIF] Round 91: removing 'pct_sum_food_dining_12m'  VIF=114.90
+  [VIF] Round 92: removing 'pct_count_home_12m'  VIF=113.27
+  [VIF] Round 93: removing 'count_grocery_net_all'  VIF=111.27
+  [VIF] Round 94: removing 'count_travel_12m'  VIF=109.60
+  [VIF] Round 95: removing 'sum_misc_pos_6m'  VIF=109.29
+  [VIF] Round 96: removing 'count_kids_pets_6m'  VIF=107.95
+  [VIF] Round 97: removing 'count_misc_net_all'  VIF=106.61
+  [VIF] Round 98: removing 'trend_count_food_dining'  VIF=105.15
+  [VIF] Round 99: removing 'pct_sum_kids_pets_12m'  VIF=104.79
+  [VIF] Round 100: removing 'count_health_fitness_6m'  VIF=101.49
+  [VIF] Round 101: removing 'count_misc_pos_all'  VIF=98.91
+  [VIF] Round 102: removing 'pct_count_grocery_pos_all'  VIF=96.48
+  [VIF] Round 103: removing 'sum_health_fitness_all'  VIF=91.36
+  [VIF] Round 104: removing 'sum_kids_pets_12m'  VIF=90.50
+  [VIF] Round 105: removing 'sum_personal_care_all'  VIF=89.56
+  [VIF] Round 106: removing 'pct_count_gas_transport_6m'  VIF=86.26
+  [VIF] Round 107: removing 'sum_shopping_pos_all'  VIF=84.93
+  [VIF] Round 108: removing 'pct_count_personal_care_12m'  VIF=82.18
+  [VIF] Round 109: removing 'median_amt_all'  VIF=80.00
+  [VIF] Round 110: removing 'pct_sum_gas_transport_all'  VIF=79.84
+  [VIF] Round 111: removing 'count_personal_care_6m'  VIF=79.60
+  [VIF] Round 112: removing 'count_entertainment_6m'  VIF=78.62
+  [VIF] Round 113: removing 'mean_grocery_pos_6m'  VIF=77.83
+  [VIF] Round 114: removing 'max_amt_3m'  VIF=75.75
+  [VIF] Round 115: removing 'sum_food_dining_12m'  VIF=71.61
+  [VIF] Round 116: removing 'pct_sum_misc_pos_12m'  VIF=70.36
+  [VIF] Round 117: removing 'pct_sum_entertainment_12m'  VIF=70.21
+  [VIF] Round 118: removing 'pct_sum_home_12m'  VIF=68.95
+  [VIF] Round 119: removing 'count_food_dining_6m'  VIF=67.70
+  [VIF] Round 120: removing 'trend_sum_gas_transport'  VIF=66.14
+  [VIF] Round 121: removing 'mean_kids_pets_6m'  VIF=63.35
+  [VIF] Round 122: removing 'pct_sum_health_fitness_12m'  VIF=62.64
+  [VIF] Round 123: removing 'pct_high_amt_6m'  VIF=61.25
+  [VIF] Round 124: removing 'mean_grocery_net_all'  VIF=59.36
+  [VIF] Round 125: removing 'pct_sum_misc_net_12m'  VIF=55.71
+  [VIF] Round 126: removing 'pct_sum_grocery_net_12m'  VIF=55.17
+  [VIF] Round 127: removing 'mean_entertainment_all'  VIF=54.57
+  [VIF] Round 128: removing 'trend_count_health_fitness'  VIF=53.85
+  [VIF] Round 129: removing 'pct_sum_travel_all'  VIF=53.68
+  [VIF] Round 130: removing 'mean_personal_care_6m'  VIF=51.45
+  [VIF] Round 131: removing 'pct_count_grocery_pos_6m'  VIF=50.74
+  [VIF] Round 132: removing 'pct_sum_kids_pets_all'  VIF=49.06
+  [VIF] Round 133: removing 'sum_grocery_pos_all'  VIF=47.42
+  [VIF] Round 134: removing 'avg_gap_days_all'  VIF=47.25
+  [VIF] Round 135: removing 'max_amt_12m'  VIF=45.23
+  [VIF] Round 136: removing 'mean_food_dining_12m'  VIF=43.51
+  [VIF] Round 137: removing 'pct_sum_home_all'  VIF=43.22
+  [VIF] Round 138: removing 'count_shopping_pos_6m'  VIF=42.77
+  [VIF] Round 139: removing 'pct_morning_all'  VIF=42.11
+  [VIF] Round 140: removing 'pct_sum_personal_care_12m'  VIF=41.85
+  [VIF] Round 141: removing 'sum_amt_3m'  VIF=41.67
+  [VIF] Round 142: removing 'pct_count_entertainment_all'  VIF=38.84
+  [VIF] Round 143: removing 'mean_shopping_pos_6m'  VIF=38.37
+  [VIF] Round 144: removing 'trend_sum_grocery_pos'  VIF=36.77
+  [VIF] Round 145: removing 'pct_count_food_dining_12m'  VIF=36.53
+  [VIF] Round 146: removing 'mean_shopping_net_6m'  VIF=35.95
+  [VIF] Round 147: removing 'trend_count_grocery_net'  VIF=35.36
+  [VIF] Round 148: removing 'sum_misc_net_12m'  VIF=35.29
+  [VIF] Round 149: removing 'days_since_last'  VIF=34.86
+  [VIF] Round 150: removing 'sum_shopping_net_12m'  VIF=34.32
+  [VIF] Round 151: removing 'pct_sum_health_fitness_all'  VIF=33.92
+  [VIF] Round 152: removing 'mean_travel_6m'  VIF=33.72
+  [VIF] Round 153: removing 'median_amt_3m'  VIF=33.22
+  [VIF] Round 154: removing 'pct_sum_food_dining_all'  VIF=32.65
+  [VIF] Round 155: removing 'pct_count_gas_transport_12m'  VIF=32.26
+  [VIF] Round 156: removing 'count_travel_all'  VIF=31.69
+  [VIF] Round 157: removing 'pct_sum_health_fitness_6m'  VIF=31.53
+  [VIF] Round 158: removing 'count_misc_pos_6m'  VIF=31.37
+  [VIF] Round 159: removing 'mean_misc_net_6m'  VIF=30.84
+  [VIF] Round 160: removing 'max_amt_6m'  VIF=30.51
+  [VIF] Round 161: removing 'sum_shopping_pos_12m'  VIF=30.34
+  [VIF] Round 162: removing 'pct_midday_6m'  VIF=28.81
+  [VIF] Round 163: removing 'std_amt_all'  VIF=28.41
+  [VIF] Round 164: removing 'count_shopping_net_6m'  VIF=27.77
+  [VIF] Round 165: removing 'sum_entertainment_6m'  VIF=27.26
+  [VIF] Round 166: removing 'trend_count_kids_pets'  VIF=27.14
+  [VIF] Round 167: removing 'mean_misc_pos_all'  VIF=26.04
+  [VIF] Round 168: removing 'sum_home_6m'  VIF=25.59
+  [VIF] Round 169: removing 'count_misc_net_6m'  VIF=25.01
+  [VIF] Round 170: removing 'sum_kids_pets_6m'  VIF=24.36
+  [VIF] Round 171: removing 'pct_count_home_all'  VIF=23.99
+  [VIF] Round 172: removing 'pct_count_travel_12m'  VIF=23.81
+  [VIF] Round 173: removing 'pct_sum_grocery_net_all'  VIF=23.71
+  [VIF] Round 174: removing 'pct_sum_gas_transport_6m'  VIF=22.09
+  [VIF] Round 175: removing 'pct_sum_food_dining_6m'  VIF=21.47
+  [VIF] Round 176: removing 'pct_count_entertainment_12m'  VIF=20.84
+  [VIF] Round 177: removing 'pct_sum_personal_care_all'  VIF=19.88
+  [VIF] Round 178: removing 'mean_kids_pets_all'  VIF=19.80
+  [VIF] Round 179: removing 'pct_count_shopping_pos_12m'  VIF=19.68
+  [VIF] Round 180: removing 'mean_misc_pos_6m'  VIF=19.46
+  [VIF] Round 181: removing 'mean_health_fitness_all'  VIF=18.70
+  [VIF] Round 182: removing 'pct_count_shopping_net_12m'  VIF=18.67
+  [VIF] Round 183: removing 'count_grocery_pos_6m'  VIF=17.50
+  [VIF] Round 184: removing 'pct_count_grocery_net_6m'  VIF=16.77
+  [VIF] Round 185: removing 'pct_count_home_6m'  VIF=16.12
+  [VIF] Round 186: removing 'sum_grocery_net_6m'  VIF=15.83
+  [VIF] Round 187: removing 'pct_sum_shopping_pos_6m'  VIF=15.52
+  [VIF] Round 188: removing 'mean_gas_transport_all'  VIF=15.05
+  [VIF] Round 189: removing 'sum_misc_net_6m'  VIF=14.89
+  [VIF] Round 190: removing 'pct_count_misc_pos_12m'  VIF=14.44
+  [VIF] Round 191: removing 'mean_grocery_pos_all'  VIF=14.28
+  [VIF] Round 192: removing 'mean_misc_net_12m'  VIF=14.04
+  [VIF] Round 193: removing 'sum_personal_care_6m'  VIF=13.98
+  [VIF] Round 194: removing 'mean_home_12m'  VIF=13.69
+  [VIF] Round 195: removing 'pct_midday_all'  VIF=13.51
+  [VIF] Round 196: removing 'streak_grocery_pos'  VIF=13.47
+  [VIF] Round 197: removing 'pct_sum_grocery_pos_6m'  VIF=13.27
+  [VIF] Round 198: removing 'sum_health_fitness_6m'  VIF=13.04
+  [VIF] Round 199: removing 'pct_count_food_dining_all'  VIF=12.58
+  [VIF] Round 200: removing 'pct_count_personal_care_6m'  VIF=12.44
+  [VIF] Warning: max_iterations (200) reached.
+  After VIF gate: 98 features  (removed 205)
+  High-correlation pairs (|r|>0.85):
+    mean_travel_12m ↔ mean_travel_all  r=0.913
+    trend_count_personal_care ↔ trend_sum_personal_care  r=0.890
+    mean_grocery_net_6m ↔ mean_grocery_net_12m  r=0.890
+    mean_food_dining_6m ↔ mean_food_dining_all  r=0.889
+    pct_count_kids_pets_6m ↔ pct_count_kids_pets_all  r=0.872
+  [FeatureSelector → Orchestrator] Requesting LLM: select best feature subset from 98 VIF-filtered candidates (pipeline)
+
+  [Orchestrator] ← FeatureSelector requests LLM help: select best feature subset from 98 VIF-filtered candidates (pipeline)
+  [Orchestrator] → FeatureSelector: LLM answered (in=2834 out=809 15.22s)
+  [Orchestrator → FeatureSelector] LLM response received (2344 chars)
+  Selected 42 features.
+  VIF removed: 205  |  Max VIF remaining: 12.30
+  Reasoning: Selected 50 features spanning diverse behavioral dimensions: demographics (gender_M, city_pop), temporal patterns (pct_weekend_all, pct_weekend_6m, peak_hour_all), spending trends across all major merchant categories (food/dining, travel, shopping, health, entertainment, kids/pets, grocery, gas, misc), and category concentration ratios (pct_count_* features). From high-correlation pairs, only one representative was kept per pair (e.g. mean_food_dining_6m over mean_food_dining_all, mean_grocery_net_6m over mean_grocery_net_12m, trend_count_personal_care dropped in favor of trend_sum_personal_care, mean_travel_6m kept instead of correlated 12m/all variants). This broad multi-dimensional coverage should expose distinct behavioral personas such as frequent travelers, weekend shoppers, health-conscious spenders, and family-oriented customers that were masked by the previous narrow feature set.
+  [Bus] ⚠ FeatureSelector (iter 2): WARNING — Scored 303 features (PCA+AE). Removed 205 via VIF gate. LLM selected 42 from 98 
+         Issue: Some features still have VIF > 12.0 (max=12.3).
+         Doubt: 7 high-correlation pairs still present after VIF gate — LLM was asked to avoid both in each pair.
+
+  [INTERACTIVE MODE] Paused after FeatureSelector reported warnings.
+  [INTERACTIVE MODE] Open the UI, choose how to handle it, and click Apply.
+  [INTERACTIVE MODE] Timeout: 300s (then auto-bypass).
+127.0.0.1 - - [06/Jun/2026 20:50:43] "POST /api/decision HTTP/1.1" 200 -
+  [INTERACTIVE MODE] User decision (apply): yes, do it as you think
+  [Orchestrator] Pre-modelling preview saved (stage=feature_selection, iter 2, 983×42)
+
+[Clusterer] Iteration 2
+  Config overrides: {'clustering_algorithm': 'kmeans', 'k_search_range': [6, 7, 8, 9, 10]}
+  Algorithm: kmeans (from config)
+  [SilhouetteOptimizer] Trying k ∈ [6, 7, 8, 9, 10] with algorithm=kmeans
+    k=  6  sil=0.1288  DB=2.0369  CH=198.5
+    k=  7  sil=0.1191  DB=2.0240  CH=179.1
+    k=  8  sil=0.1209  DB=1.9137  CH=165.3
+    k=  9  sil=0.1137  DB=1.7772  CH=150.1
+    k= 10  sil=0.1103  DB=1.8479  CH=138.4
+  [SilhouetteOptimizer] WARNING: Best silhouette (0.129) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  [SilhouetteOptimizer] Best k=6  composite=0.650  sil=0.1288  DB=2.0369  CH=198.5
+  k auto-selected: 6  composite=0.650  silhouette=0.1288  DB=2.0369  CH=198.5
+  WARNING: Best silhouette (0.129) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  Initial clustering: 6 clusters  |  silhouette=0.1288
+  Round 1: oversized clusters → [4]
+  [Clusterer → Orchestrator] Requesting LLM: route oversized cluster C4 (51%): sub-cluster or reselect features (pipeline)
+
+  [Orchestrator] ← Clusterer requests LLM help: route oversized cluster C4 (51%): sub-cluster or reselect features (pipeline)
+  [Orchestrator] → Clusterer: LLM answered (in=1430 out=94 2.62s)
+  [Orchestrator → Clusterer] LLM response received (407 chars)
+    LLM recommends re-selecting features: The same top features (sum_amt_all, city_pop, sum_amt_12m) are still dominating Cluster 4 after the previous reselection attempt, indicating these features lack sufficient discriminative power to separate the dense majority. Feature selection must explore additional behavioral or demographic dimensions beyond these three to break up the 50.9% concentration.
+  [Bus] ✗ Clusterer (iter 2): BLOCKED — Clustered with k=6, ran deepening loop
+         Issue: Cluster 4 has 50.9% of data (>40% threshold)
+         Doubt: Oversized cluster may reflect feature redundancy
+
+  [INTERACTIVE MODE] Paused after Clusterer reported warnings.
+  [INTERACTIVE MODE] Open the UI, choose how to handle it, and click Apply.
+  [INTERACTIVE MODE] Timeout: 300s (then auto-bypass).
+127.0.0.1 - - [06/Jun/2026 20:51:15] "POST /api/decision HTTP/1.1" 200 -
+  [INTERACTIVE MODE] User decision (apply): 50% is ok
+
+[Orchestrator] Clustering → reselect features: The same top features (sum_amt_all, city_pop, sum_amt_12m) are still dominating Cluster 4 after the previous reselection attempt, indicating these features lack sufficient discriminative power to separate the dense majority. Feature selection must explore additional behavioral or demographic dimensions beyond these three to break up the 50.9% concentration.
+  [Orchestrator] Injected user-preference block into tuning prompt.
+  [Orchestrator] Injected case-memory hint block (match=exact) into tuning prompt.
+
+  [Orchestrator] Asking LLM to tune parameters for iteration 3...
+  [Orchestrator → Orchestrator] Requesting LLM: tune pipeline parameters based on iteration failures (pipeline)
+
+  [Orchestrator] ← Orchestrator requests LLM help: tune pipeline parameters based on iteration failures (pipeline)
+  [Orchestrator] → Orchestrator: LLM answered (in=3435 out=241 7.19s)
+  [Orchestrator → Orchestrator] LLM response received (822 chars)
+  [Orchestrator] Tuned → vif=12.0, algo=kmeans, k_range=[6, 7, 8, 9, 10], min_sil=0.05, text_vec=None
+  [Orchestrator] Reasoning: Iteration 1 collapsed 92.4% of data into one cluster, likely because high-variance aggregate amount features (sum_amt_all, city_pop, sum_amt_12m) dominated the space; directing FeatureSelector away from those raw aggregates toward behavioural and temporal features should produce more balanced clusters. Parameters otherwise match the proven winning recipe (KMeans, k∈[6-10], vif=12.0) that converged at iteration 2 in the prior successful run.
+
+─────────────────────────────────────────────────────────────────
+ITERATION 3 / 5
+─────────────────────────────────────────────────────────────────
+
+[FeatureSelector] Iteration 3  (vif_threshold=12.0)
+  Feedback from previous round: The same top features (sum_amt_all, city_pop, sum_amt_12m) are still dominating Cluster 4 after the previous reselection attempt, indicating these features lack sufficient discriminative power to separate the dense majority. Feature selection must explore additional behavioral or demographic dimensions beyond these three to break up the 50.9% concentration.
+Orchestrator guidance: transaction frequency, amount variability, merchant category diversity, time-of-day and day-of-week patterns — avoid raw geographic or population aggregates that dominated prior clustering
+  Features: 303  |  Entities: 983
+  AE bottleneck=32  (cap=32, max_iter=200)
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/.venv/lib/python3.13/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (200) reached and the optimization hasn't converged yet.
+  warnings.warn(
+  Running VIF gate (threshold=12.0)...
+  [VIF] Pre-pass: dropping 5 linearly dependent features: ['event_count_6m', 'event_count_12m', 'event_count_all', 'n_unique_city_6m', 'n_unique_city_all']
+  [VIF] Round 1: removing 'active_periods_6m'  VIF=17266.36
+  [VIF] Round 2: removing 'active_periods_12m'  VIF=12519.42
+  [VIF] Round 3: removing 'pct_evening_6m'  VIF=11874.55
+  [VIF] Round 4: removing 'mean_amt_12m'  VIF=9818.03
+  [VIF] Round 5: removing 'count_gas_transport_12m'  VIF=8171.22
+  [VIF] Round 6: removing 'pct_sum_shopping_net_all'  VIF=7503.36
+  [VIF] Round 7: removing 'n_unique_category_6m'  VIF=5723.38
+  [VIF] Round 8: removing 'sum_amt_12m'  VIF=4650.69
+  [VIF] Round 9: removing 'sum_travel_12m'  VIF=4141.69
+  [VIF] Round 10: removing 'active_periods_3m'  VIF=3541.79
+  [VIF] Round 11: removing 'sum_gas_transport_all'  VIF=3385.03
+  [VIF] Round 12: removing 'mean_amt_6m'  VIF=2815.52
+  [VIF] Round 13: removing 'pct_evening_all'  VIF=2274.34
+  [VIF] Round 14: removing 'mean_amt_all'  VIF=2146.92
+  [VIF] Round 15: removing 'sum_grocery_net_all'  VIF=2135.61
+  [VIF] Round 16: removing 'sum_travel_all'  VIF=2092.95
+  [VIF] Round 17: removing 'pct_count_shopping_net_all'  VIF=1979.59
+  [VIF] Round 18: removing 'sum_grocery_pos_12m'  VIF=1893.75
+  [VIF] Round 19: removing 'sum_amt_all'  VIF=1718.33
+  [VIF] Round 20: removing 'sum_misc_pos_all'  VIF=1578.37
+  [VIF] Round 21: removing 'count_home_all'  VIF=1527.93
+  [VIF] Round 22: removing 'pct_sum_shopping_net_12m'  VIF=1368.29
+  [VIF] Round 23: removing 'count_kids_pets_12m'  VIF=1351.48
+  [VIF] Round 24: removing 'count_gas_transport_6m'  VIF=1176.87
+  [VIF] Round 25: removing 'count_food_dining_all'  VIF=1119.38
+  [VIF] Round 26: removing 'count_personal_care_all'  VIF=1093.86
+  [VIF] Round 27: removing 'count_health_fitness_all'  VIF=1078.07
+  [VIF] Round 28: removing 'count_grocery_net_12m'  VIF=1074.87
+  [VIF] Round 29: removing 'count_entertainment_12m'  VIF=971.41
+  [VIF] Round 30: removing 'mean_gas_transport_6m'  VIF=962.36
+  [VIF] Round 31: removing 'pct_high_amt_all'  VIF=910.09
+  [VIF] Round 32: removing 'median_amt_12m'  VIF=876.33
+  [VIF] Round 33: removing 'active_periods_all'  VIF=813.36
+  [VIF] Round 34: removing 'sum_amt_6m'  VIF=738.38
+  [VIF] Round 35: removing 'pct_sum_shopping_net_6m'  VIF=698.33
+  [VIF] Round 36: removing 'avg_gap_days_12m'  VIF=697.50
+  [VIF] Round 37: removing 'std_amt_12m'  VIF=668.03
+  [VIF] Round 38: removing 'sum_gas_transport_12m'  VIF=642.85
+  [VIF] Round 39: removing 'n_unique_merchant_all'  VIF=586.95
+  [VIF] Round 40: removing 'sum_home_12m'  VIF=585.46
+  [VIF] Round 41: removing 'sum_kids_pets_all'  VIF=565.04
+  [VIF] Round 42: removing 'sum_travel_6m'  VIF=547.16
+  [VIF] Round 43: removing 'sum_misc_pos_12m'  VIF=530.22
+  [VIF] Round 44: removing 'count_shopping_pos_12m'  VIF=527.31
+  [VIF] Round 45: removing 'count_health_fitness_12m'  VIF=453.38
+  [VIF] Round 46: removing 'count_grocery_pos_all'  VIF=447.40
+  [VIF] Round 47: removing 'mean_grocery_pos_12m'  VIF=430.10
+  [VIF] Round 48: removing 'std_amt_6m'  VIF=420.35
+  [VIF] Round 49: removing 'count_shopping_net_12m'  VIF=416.15
+  [VIF] Round 50: removing 'sum_entertainment_all'  VIF=405.80
+  [VIF] Round 51: removing 'count_home_12m'  VIF=395.83
+  [VIF] Round 52: removing 'pct_count_kids_pets_12m'  VIF=388.88
+  [VIF] Round 53: removing 'count_personal_care_12m'  VIF=386.49
+  [VIF] Round 54: removing 'mean_gas_transport_12m'  VIF=385.48
+  [VIF] Round 55: removing 'count_food_dining_12m'  VIF=370.65
+  [VIF] Round 56: removing 'event_count_3m'  VIF=361.46
+  [VIF] Round 57: removing 'median_amt_6m'  VIF=345.40
+  [VIF] Round 58: removing 'n_unique_category_all'  VIF=333.36
+  [VIF] Round 59: removing 'mean_entertainment_6m'  VIF=326.90
+  [VIF] Round 60: removing 'sum_grocery_net_12m'  VIF=324.67
+  [VIF] Round 61: removing 'trend_count_home'  VIF=319.70
+  [VIF] Round 62: removing 'n_unique_merchant_6m'  VIF=315.03
+  [VIF] Round 63: removing 'count_misc_pos_12m'  VIF=304.82
+  [VIF] Round 64: removing 'count_grocery_pos_12m'  VIF=292.50
+  [VIF] Round 65: removing 'mean_amt_3m'  VIF=286.49
+  [VIF] Round 66: removing 'sum_health_fitness_12m'  VIF=282.60
+  [VIF] Round 67: removing 'count_kids_pets_all'  VIF=278.02
+  [VIF] Round 68: removing 'sum_personal_care_12m'  VIF=277.82
+  [VIF] Round 69: removing 'pct_high_amt_12m'  VIF=264.46
+  [VIF] Round 70: removing 'sum_food_dining_all'  VIF=255.35
+  [VIF] Round 71: removing 'count_misc_net_12m'  VIF=253.93
+  [VIF] Round 72: removing 'pct_count_health_fitness_12m'  VIF=248.70
+  [VIF] Round 73: removing 'count_entertainment_all'  VIF=237.92
+  [VIF] Round 74: removing 'pct_sum_misc_net_all'  VIF=231.50
+  [VIF] Round 75: removing 'count_grocery_net_6m'  VIF=222.29
+  [VIF] Round 76: removing 'pct_sum_gas_transport_12m'  VIF=214.87
+127.0.0.1 - - [06/Jun/2026 20:59:07] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 20:59:07] "GET /api/outputs-files HTTP/1.1" 200 -
+  [VIF] Round 77: removing 'avg_gap_days_6m'  VIF=203.45
+  [VIF] Round 78: removing 'count_gas_transport_all'  VIF=196.76
+  [VIF] Round 79: removing 'count_shopping_pos_all'  VIF=172.19
+  [VIF] Round 80: removing 'mean_kids_pets_12m'  VIF=169.28
+  [VIF] Round 81: removing 'sum_grocery_pos_6m'  VIF=167.08
+  [VIF] Round 82: removing 'mean_health_fitness_12m'  VIF=163.07
+  [VIF] Round 83: removing 'count_shopping_net_all'  VIF=145.18
+  [VIF] Round 84: removing 'sum_home_all'  VIF=142.41
+  [VIF] Round 85: removing 'mean_personal_care_12m'  VIF=139.72
+  [VIF] Round 86: removing 'sum_entertainment_12m'  VIF=135.34
+  [VIF] Round 87: removing 'pct_sum_shopping_pos_12m'  VIF=132.88
+  [VIF] Round 88: removing 'pct_count_grocery_net_12m'  VIF=127.42
+  [VIF] Round 89: removing 'count_home_6m'  VIF=125.98
+  [VIF] Round 90: removing 'pct_sum_grocery_pos_12m'  VIF=121.45
+  [VIF] Round 91: removing 'pct_sum_food_dining_12m'  VIF=114.90
+  [VIF] Round 92: removing 'pct_count_home_12m'  VIF=113.27
+  [VIF] Round 93: removing 'count_grocery_net_all'  VIF=111.27
+  [VIF] Round 94: removing 'count_travel_12m'  VIF=109.60
+  [VIF] Round 95: removing 'sum_misc_pos_6m'  VIF=109.29
+  [VIF] Round 96: removing 'count_kids_pets_6m'  VIF=107.95
+  [VIF] Round 97: removing 'count_misc_net_all'  VIF=106.61
+  [VIF] Round 98: removing 'trend_count_food_dining'  VIF=105.15
+  [VIF] Round 99: removing 'pct_sum_kids_pets_12m'  VIF=104.79
+  [VIF] Round 100: removing 'count_health_fitness_6m'  VIF=101.49
+  [VIF] Round 101: removing 'count_misc_pos_all'  VIF=98.91
+  [VIF] Round 102: removing 'pct_count_grocery_pos_all'  VIF=96.48
+127.0.0.1 - - [06/Jun/2026 21:00:29] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:00:29] "GET /api/outputs-files HTTP/1.1" 200 -
+  [VIF] Round 103: removing 'sum_health_fitness_all'  VIF=91.36
+  [VIF] Round 104: removing 'sum_kids_pets_12m'  VIF=90.50
+  [VIF] Round 105: removing 'sum_personal_care_all'  VIF=89.56
+  [VIF] Round 106: removing 'pct_count_gas_transport_6m'  VIF=86.26
+  [VIF] Round 107: removing 'sum_shopping_pos_all'  VIF=84.93
+  [VIF] Round 108: removing 'pct_count_personal_care_12m'  VIF=82.18
+  [VIF] Round 109: removing 'median_amt_all'  VIF=80.00
+  [VIF] Round 110: removing 'pct_sum_gas_transport_all'  VIF=79.84
+  [VIF] Round 111: removing 'count_personal_care_6m'  VIF=79.60
+  [VIF] Round 112: removing 'count_entertainment_6m'  VIF=78.62
+  [VIF] Round 113: removing 'mean_grocery_pos_6m'  VIF=77.83
+  [VIF] Round 114: removing 'max_amt_3m'  VIF=75.75
+  [VIF] Round 115: removing 'sum_food_dining_12m'  VIF=71.61
+  [VIF] Round 116: removing 'pct_sum_misc_pos_12m'  VIF=70.36
+  [VIF] Round 117: removing 'pct_sum_entertainment_12m'  VIF=70.21
+  [VIF] Round 118: removing 'pct_sum_home_12m'  VIF=68.95
+  [VIF] Round 119: removing 'count_food_dining_6m'  VIF=67.70
+  [VIF] Round 120: removing 'trend_sum_gas_transport'  VIF=66.14
+  [VIF] Round 121: removing 'mean_kids_pets_6m'  VIF=63.35
+  [VIF] Round 122: removing 'pct_sum_health_fitness_12m'  VIF=62.64
+  [VIF] Round 123: removing 'pct_high_amt_6m'  VIF=61.25
+  [VIF] Round 124: removing 'mean_grocery_net_all'  VIF=59.36
+  [VIF] Round 125: removing 'pct_sum_misc_net_12m'  VIF=55.71
+  [VIF] Round 126: removing 'pct_sum_grocery_net_12m'  VIF=55.17
+  [VIF] Round 127: removing 'mean_entertainment_all'  VIF=54.57
+  [VIF] Round 128: removing 'trend_count_health_fitness'  VIF=53.85
+  [VIF] Round 129: removing 'pct_sum_travel_all'  VIF=53.68
+  [VIF] Round 130: removing 'mean_personal_care_6m'  VIF=51.45
+  [VIF] Round 131: removing 'pct_count_grocery_pos_6m'  VIF=50.74
+  [VIF] Round 132: removing 'pct_sum_kids_pets_all'  VIF=49.06
+  [VIF] Round 133: removing 'sum_grocery_pos_all'  VIF=47.42
+  [VIF] Round 134: removing 'avg_gap_days_all'  VIF=47.25
+  [VIF] Round 135: removing 'max_amt_12m'  VIF=45.23
+  [VIF] Round 136: removing 'mean_food_dining_12m'  VIF=43.51
+  [VIF] Round 137: removing 'pct_sum_home_all'  VIF=43.22
+  [VIF] Round 138: removing 'count_shopping_pos_6m'  VIF=42.77
+  [VIF] Round 139: removing 'pct_morning_all'  VIF=42.11
+  [VIF] Round 140: removing 'pct_sum_personal_care_12m'  VIF=41.85
+  [VIF] Round 141: removing 'sum_amt_3m'  VIF=41.67
+  [VIF] Round 142: removing 'pct_count_entertainment_all'  VIF=38.84
+  [VIF] Round 143: removing 'mean_shopping_pos_6m'  VIF=38.37
+  [VIF] Round 144: removing 'trend_sum_grocery_pos'  VIF=36.77
+  [VIF] Round 145: removing 'pct_count_food_dining_12m'  VIF=36.53
+  [VIF] Round 146: removing 'mean_shopping_net_6m'  VIF=35.95
+  [VIF] Round 147: removing 'trend_count_grocery_net'  VIF=35.36
+  [VIF] Round 148: removing 'sum_misc_net_12m'  VIF=35.29
+  [VIF] Round 149: removing 'days_since_last'  VIF=34.86
+  [VIF] Round 150: removing 'sum_shopping_net_12m'  VIF=34.32
+  [VIF] Round 151: removing 'pct_sum_health_fitness_all'  VIF=33.92
+  [VIF] Round 152: removing 'mean_travel_6m'  VIF=33.72
+  [VIF] Round 153: removing 'median_amt_3m'  VIF=33.22
+  [VIF] Round 154: removing 'pct_sum_food_dining_all'  VIF=32.65
+  [VIF] Round 155: removing 'pct_count_gas_transport_12m'  VIF=32.26
+  [VIF] Round 156: removing 'count_travel_all'  VIF=31.69
+  [VIF] Round 157: removing 'pct_sum_health_fitness_6m'  VIF=31.53
+  [VIF] Round 158: removing 'count_misc_pos_6m'  VIF=31.37
+  [VIF] Round 159: removing 'mean_misc_net_6m'  VIF=30.84
+  [VIF] Round 160: removing 'max_amt_6m'  VIF=30.51
+  [VIF] Round 161: removing 'sum_shopping_pos_12m'  VIF=30.34
+  [VIF] Round 162: removing 'pct_midday_6m'  VIF=28.81
+  [VIF] Round 163: removing 'std_amt_all'  VIF=28.41
+  [VIF] Round 164: removing 'count_shopping_net_6m'  VIF=27.77
+  [VIF] Round 165: removing 'sum_entertainment_6m'  VIF=27.26
+  [VIF] Round 166: removing 'trend_count_kids_pets'  VIF=27.14
+  [VIF] Round 167: removing 'mean_misc_pos_all'  VIF=26.04
+  [VIF] Round 168: removing 'sum_home_6m'  VIF=25.59
+  [VIF] Round 169: removing 'count_misc_net_6m'  VIF=25.01
+  [VIF] Round 170: removing 'sum_kids_pets_6m'  VIF=24.36
+  [VIF] Round 171: removing 'pct_count_home_all'  VIF=23.99
+  [VIF] Round 172: removing 'pct_count_travel_12m'  VIF=23.81
+  [VIF] Round 173: removing 'pct_sum_grocery_net_all'  VIF=23.71
+  [VIF] Round 174: removing 'pct_sum_gas_transport_6m'  VIF=22.09
+  [VIF] Round 175: removing 'pct_sum_food_dining_6m'  VIF=21.47
+  [VIF] Round 176: removing 'pct_count_entertainment_12m'  VIF=20.84
+  [VIF] Round 177: removing 'pct_sum_personal_care_all'  VIF=19.88
+  [VIF] Round 178: removing 'mean_kids_pets_all'  VIF=19.80
+  [VIF] Round 179: removing 'pct_count_shopping_pos_12m'  VIF=19.68
+  [VIF] Round 180: removing 'mean_misc_pos_6m'  VIF=19.46
+  [VIF] Round 181: removing 'mean_health_fitness_all'  VIF=18.70
+  [VIF] Round 182: removing 'pct_count_shopping_net_12m'  VIF=18.67
+  [VIF] Round 183: removing 'count_grocery_pos_6m'  VIF=17.50
+  [VIF] Round 184: removing 'pct_count_grocery_net_6m'  VIF=16.77
+  [VIF] Round 185: removing 'pct_count_home_6m'  VIF=16.12
+  [VIF] Round 186: removing 'sum_grocery_net_6m'  VIF=15.83
+  [VIF] Round 187: removing 'pct_sum_shopping_pos_6m'  VIF=15.52
+  [VIF] Round 188: removing 'mean_gas_transport_all'  VIF=15.05
+  [VIF] Round 189: removing 'sum_misc_net_6m'  VIF=14.89
+  [VIF] Round 190: removing 'pct_count_misc_pos_12m'  VIF=14.44
+  [VIF] Round 191: removing 'mean_grocery_pos_all'  VIF=14.28
+  [VIF] Round 192: removing 'mean_misc_net_12m'  VIF=14.04
+  [VIF] Round 193: removing 'sum_personal_care_6m'  VIF=13.98
+  [VIF] Round 194: removing 'mean_home_12m'  VIF=13.69
+  [VIF] Round 195: removing 'pct_midday_all'  VIF=13.51
+  [VIF] Round 196: removing 'streak_grocery_pos'  VIF=13.47
+  [VIF] Round 197: removing 'pct_sum_grocery_pos_6m'  VIF=13.27
+  [VIF] Round 198: removing 'sum_health_fitness_6m'  VIF=13.04
+  [VIF] Round 199: removing 'pct_count_food_dining_all'  VIF=12.58
+  [VIF] Round 200: removing 'pct_count_personal_care_6m'  VIF=12.44
+  [VIF] Warning: max_iterations (200) reached.
+  After VIF gate: 98 features  (removed 205)
+  High-correlation pairs (|r|>0.85):
+    mean_travel_12m ↔ mean_travel_all  r=0.913
+    trend_count_personal_care ↔ trend_sum_personal_care  r=0.890
+    mean_grocery_net_6m ↔ mean_grocery_net_12m  r=0.890
+    mean_food_dining_6m ↔ mean_food_dining_all  r=0.889
+    pct_count_kids_pets_6m ↔ pct_count_kids_pets_all  r=0.872
+  [FeatureSelector → Orchestrator] Requesting LLM: select best feature subset from 98 VIF-filtered candidates (pipeline)
+
+  [Orchestrator] ← FeatureSelector requests LLM help: select best feature subset from 98 VIF-filtered candidates (pipeline)
+  [Orchestrator] → FeatureSelector: LLM answered (in=2929 out=701 10.98s)
+  [Orchestrator → FeatureSelector] LLM response received (2124 chars)
+  Selected 40 features.
+  VIF removed: 205  |  Max VIF remaining: 12.30
+  Reasoning: Features were selected to maximize behavioral dimensionality across time-of-day patterns (peak_hour_all, peak_hour_6m), day-of-week rhythms (pct_weekend_all, pct_weekend_6m), merchant category diversity (trend and pct_count features across food_dining, travel, shopping, health_fitness, kids_pets, entertainment, personal_care, misc, grocery, gas_transport), spending trend signals (trend_sum_* across all major categories), and demographic context (gender_M). Raw geographic/population aggregates like city_pop were explicitly excluded per orchestrator guidance, and from high-correlation pairs only one representative was retained (e.g., trend_count_personal_care kept over trend_sum_personal_care since both survived but their collinearity is flagged, and pct_count_kids_pets_6m kept over the _all variant). This diverse, behavior-first feature set is designed to break up the dominant cluster by surfacing meaningful lifestyle and spending-pattern differences.
+  [Bus] ⚠ FeatureSelector (iter 3): WARNING — Scored 303 features (PCA+AE). Removed 205 via VIF gate. LLM selected 40 from 98 
+         Issue: Some features still have VIF > 12.0 (max=12.3).
+         Doubt: 7 high-correlation pairs still present after VIF gate — LLM was asked to avoid both in each pair.
+
+  [INTERACTIVE MODE] Paused after FeatureSelector reported warnings.
+  [INTERACTIVE MODE] Open the UI, choose how to handle it, and click Apply.
+  [INTERACTIVE MODE] Timeout: 300s (then auto-bypass).
+127.0.0.1 - - [06/Jun/2026 21:02:48] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:02:48] "GET /api/outputs-files HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:06:18] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:06:18] "GET /api/outputs-files HTTP/1.1" 200 -
+  [INTERACTIVE MODE] Timed out — bypassing.
+  [Orchestrator] Pre-modelling preview saved (stage=feature_selection, iter 3, 983×40)
+
+[Clusterer] Iteration 3
+  Config overrides: {'clustering_algorithm': 'kmeans', 'k_search_range': [6, 7, 8, 9, 10]}
+  Algorithm: kmeans (from config)
+  [SilhouetteOptimizer] Trying k ∈ [6, 7, 8, 9, 10] with algorithm=kmeans
+    k=  6  sil=0.1233  DB=2.1285  CH=196.2
+    k=  7  sil=0.1047  DB=2.1642  CH=179.0
+    k=  8  sil=0.1065  DB=1.9756  CH=164.9
+    k=  9  sil=0.1039  DB=2.1057  CH=149.7
+    k= 10  sil=0.1056  DB=2.0374  CH=140.7
+  [SilhouetteOptimizer] WARNING: Best silhouette (0.123) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  [SilhouetteOptimizer] Best k=6  composite=0.697  sil=0.1233  DB=2.1285  CH=196.2
+  k auto-selected: 6  composite=0.697  silhouette=0.1233  DB=2.1285  CH=196.2
+  WARNING: Best silhouette (0.123) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  Initial clustering: 6 clusters  |  silhouette=0.1233
+  Round 1: oversized clusters → [2]
+  [Clusterer → Orchestrator] Requesting LLM: route oversized cluster C2 (50%): sub-cluster or reselect features (pipeline)
+
+  [Orchestrator] ← Clusterer requests LLM help: route oversized cluster C2 (50%): sub-cluster or reselect features (pipeline)
+  [Orchestrator] → Clusterer: LLM answered (in=1532 out=106 3.55s)
+  [Orchestrator → Clusterer] LLM response received (482 chars)
+    LLM recommends sub-clustering C2.
+    Split C2 (489 cust) → 6(134 cust), 7(95 cust), 8(260 cust)
+  Round 2: no oversized cluster. Deepening done.
+  Final: 8 leaf clusters  |  silhouette=0.0925
+  [Bus] ⚠ Clusterer (iter 3): WARNING — Used KMeans with k=6 (auto-selected via silhouette). Ran deepening loop → 8 leaf
+         Issue: Silhouette=0.093 < target 0.50 — orchestrator will reselect features (or escalate after 3 consecutive misses).
+         Doubt: Silhouette improved 0.104→0.093 across k range — marginal gain.
+
+  [INTERACTIVE MODE] Paused after Clusterer reported warnings.
+  [INTERACTIVE MODE] Open the UI, choose how to handle it, and click Apply.
+  [INTERACTIVE MODE] Timeout: 300s (then auto-bypass).
+127.0.0.1 - - [06/Jun/2026 21:07:52] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:07:52] "GET /api/outputs-files HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:09:22] "POST /api/decision HTTP/1.1" 200 -
+  [INTERACTIVE MODE] User decision (apply): yes reselect featues, the Silhouette is way to low
+  [Orchestrator] PCA snapshot saved (iter 3, 983 points)
+
+[PersonaNamer] Iteration 3  (tone: 'easy')
+  Prepared cluster prompt for 8 clusters — asking Orchestrator for naming...
+  Must-have cluster types: ['traveller']
+  [PersonaNamer] Injected 20 lines of UI feedback.
+  [PersonaNamer → Orchestrator] Requesting LLM: name and describe 8 clusters (tone='easy') (pipeline)
+
+  [Orchestrator] ← PersonaNamer requests LLM help: name and describe 8 clusters (tone='easy') (pipeline)
+127.0.0.1 - - [06/Jun/2026 21:09:55] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:09:55] "GET /static/style.css HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:09:55] "GET /static/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:10:04] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:04] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:04] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:05] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+  [Orchestrator] → PersonaNamer: LLM answered (in=6649 out=2325 45.14s)
+  [Orchestrator → PersonaNamer] LLM response received (8682 chars)
+  Cluster 0  [depth 0]: "City Foodies with Kids & Pets"  conf=8/10
+  Cluster 1  [depth 0]: "Rural Commuters & Fuel-Dependent Drivers"  conf=8/10
+  Cluster 3  [depth 0]: "High-Rolling Active Shoppers"  conf=7/10
+  Cluster 4  [depth 0]: "Lapsed Big Spenders — Gone Quiet"  conf=8/10
+  Cluster 5  [depth 0]: "Lapsed Mid-Term High Spenders"  conf=7/10
+  Cluster 6  [depth 1, sub of 2]: "Male Grocery Regulars (Low-Ticket Basket)"  conf=8/10
+  Cluster 7  [depth 1, sub of 2]: "Male Frequent Travellers from Small Towns"  conf=9/10
+  Cluster 8  [depth 1, sub of 2]: "High-Volume Female Grocery & Shopping Spenders"  conf=8/10
+  Clarity Gate PASSED  (avg_conf=7.9, unique=True)
+  [Bus] ✓ PersonaNamer (iter 3): SUCCESS — Named 8 clusters using LLM (tone='easy'). Clarity Gate PASSED. Avg confidence=7.
+
+[Classifier] Iteration 3
+  Entities: 983  |  Personas (classes): 8
+  Class distribution:
+    High-Volume Female Grocery & Shopping Spenders  260 (26.4%)
+    Rural Commuters & Fuel-Dependent Drivers       225 (22.9%)
+    City Foodies with Kids & Pets                  194 (19.7%)
+    Male Grocery Regulars (Low-Ticket Basket)      134 (13.6%)
+    Male Frequent Travellers from Small Towns       95 (9.7%)
+    Lapsed Big Spenders — Gone Quiet                28 (2.8%)
+    High-Rolling Active Shoppers                    25 (2.5%)
+    Lapsed Mid-Term High Spenders                   22 (2.2%)
+  [Classifier → Orchestrator] Requesting LLM: select classifier model based on dataset characteristics (pipeline)
+
+  [Orchestrator] ← Classifier requests LLM help: select classifier model based on dataset characteristics (pipeline)
+  [Orchestrator] → Classifier: LLM answered (in=1161 out=68 2.44s)
+  [Orchestrator → Classifier] LLM response received (247 chars)
+  [Classifier] LLM selected model: svm  (With n_features (303) > n_samples (983), SVM is the preferred choice as it is well-suited for high-dimensional spaces where n_features exceeds n_samples and can effectively find clear margins between the 8 classes.)
+  Using classifier: svm
+  Running 5-fold stratified CV ...
+  CV accuracy    : 0.6094
+  CV F1 (macro)  : 0.4544  (threshold ≥ 0.7)
+  CV F1 (weighted): 0.5990
+  Per-class F1:
+    High-Rolling Active Shoppers                  0.000  
+    Lapsed Mid-Term High Spenders                 0.000  
+    Male Grocery Regulars (Low-Ticket Basket)     0.526  ██████████
+    Lapsed Big Spenders — Gone Quiet              0.544  ██████████
+    City Foodies with Kids & Pets                 0.594  ███████████
+    Male Frequent Travellers from Small Towns     0.603  ████████████
+    High-Volume Female Grocery & Shopping Spenders 0.649  ████████████
+    Rural Commuters & Fuel-Dependent Drivers      0.720  ██████████████
+  Top 10 features: ['count_entertainment_6m', 'sum_entertainment_6m', 'mean_entertainment_6m', 'pct_count_entertainment_6m', 'pct_sum_entertainment_6m', 'count_food_dining_6m', 'sum_food_dining_6m', 'mean_food_dining_6m', 'pct_count_food_dining_6m', 'pct_sum_food_dining_6m']
+  Performance below threshold (0.4544 < 0.7). Consulting LLM...
+  [Classifier → Orchestrator] Requesting LLM: diagnose low CV F1=0.454 — route to reselect_features or recluster (pipeline)
+
+  [Orchestrator] ← Classifier requests LLM help: diagnose low CV F1=0.454 — route to reselect_features or recluster (pipeline)
+  [Orchestrator] → Classifier: LLM answered (in=1532 out=133 3.78s)
+  [Orchestrator → Classifier] LLM response received (596 chars)
+  LLM decision: recluster  |  With 8 clusters and two personas scoring F1=0.00, the clustering has created overlapping or near-identical segments that are indistinguishable in feature space. The top predictive features are all entertainment-related, suggesting the clusters may be over-partitioned in a narrow feature subspace rather than capturing genuinely distinct behavioral groups. Reducing the number of clusters or switching to a different algorithm (e.g., Hierarchical Ward or GMM) is likely to produce more cohesive, well-separated segments before revisiting feature selection.
+  [Bus] ⚠ Classifier (iter 3): WARNING — Trained svm, 5-fold CV. CV macro-F1=0.454 < 0.7. LLM routed: recluster.
+         Issue: CV macro-F1=0.454 below threshold 0.7. Clusters may not be well-separated.
+         Doubt: Hardest personas: High-Rolling Active Shoppers(0.00), Lapsed Mid-Term High Spenders(0.00), Male Grocery Regulars (Low-Ticket Basket)(0.53)
+
+  [INTERACTIVE MODE] Paused after Classifier reported warnings.
+  [INTERACTIVE MODE] Open the UI, choose how to handle it, and click Apply.
+  [INTERACTIVE MODE] Timeout: 300s (then auto-bypass).
+127.0.0.1 - - [06/Jun/2026 21:10:18] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:18] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:18] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:19] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:19] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:19] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:19] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:19] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:19] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:58] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:58] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:10:58] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:11:51] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:11:51] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:11:51] "GET /static/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:11:51] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:11:51] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:11:52] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:11:52] "GET /api/events/stream HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:12:12] "POST /api/decision HTTP/1.1" 200 -
+  [INTERACTIVE MODE] User decision (apply): re-select the features
+  [Orchestrator] iter 3 is new BEST (F1=0.454, Sil=0.093, maxVIF=12.30, score=42.76)
+
+[Orchestrator] Silhouette 0.093 < target 0.50 (re-engineer counter 1/3 · relax counter 1/3).
+  [Orchestrator] Injected user-preference block into tuning prompt.
+  [Orchestrator] Injected case-memory hint block (match=exact) into tuning prompt.
+
+  [Orchestrator] Asking LLM to tune parameters for iteration 4...
+  [Orchestrator → Orchestrator] Requesting LLM: tune pipeline parameters based on iteration failures (pipeline)
+
+  [Orchestrator] ← Orchestrator requests LLM help: tune pipeline parameters based on iteration failures (pipeline)
+  [Orchestrator] → Orchestrator: LLM answered (in=3796 out=232 6.14s)
+  [Orchestrator → Orchestrator] LLM response received (835 chars)
+  [Orchestrator] Tuned → vif=12.0, algo=gmm, k_range=[6, 7, 8, 9, 10], min_sil=0.05, text_vec=None
+  [Orchestrator] Reasoning: The Classifier F1=0.454 signals poor cluster separability with KMeans on current features; switching to GMM (soft-assignment, ellipsoidal covariances) may find more natural groupings in this transaction data where clusters likely have unequal shapes and densities. Feature focus is tightened to emphasize behavioral ratios over raw amounts to reduce domination by high-magnitude features like sum_amt_all.
+
+─────────────────────────────────────────────────────────────────
+ITERATION 4 / 5
+─────────────────────────────────────────────────────────────────
+
+[FeatureSelector] Iteration 4  (vif_threshold=12.0)
+  Feedback from previous round: silhouette 0.093 < target 0.50
+Orchestrator guidance: transaction frequency, amount variability, merchant category diversity, time-of-day and day-of-week patterns — avoid raw geographic or population aggregates; focus on behavioral ratios and normalized spend features rather than absolute amounts
+  Features: 303  |  Entities: 983
+  AE bottleneck=32  (cap=32, max_iter=200)
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/.venv/lib/python3.13/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (200) reached and the optimization hasn't converged yet.
+  warnings.warn(
+  Running VIF gate (threshold=12.0)...
+  [VIF] Pre-pass: dropping 5 linearly dependent features: ['event_count_6m', 'event_count_12m', 'event_count_all', 'n_unique_city_6m', 'n_unique_city_all']
+  [VIF] Round 1: removing 'active_periods_6m'  VIF=17266.36
+  [VIF] Round 2: removing 'active_periods_12m'  VIF=12519.42
+  [VIF] Round 3: removing 'pct_evening_6m'  VIF=11874.55
+  [VIF] Round 4: removing 'mean_amt_12m'  VIF=9818.03
+  [VIF] Round 5: removing 'count_gas_transport_12m'  VIF=8171.22
+  [VIF] Round 6: removing 'pct_sum_shopping_net_all'  VIF=7503.36
+  [VIF] Round 7: removing 'n_unique_category_6m'  VIF=5723.38
+  [VIF] Round 8: removing 'sum_amt_12m'  VIF=4650.69
+  [VIF] Round 9: removing 'sum_travel_12m'  VIF=4141.69
+127.0.0.1 - - [06/Jun/2026 21:13:31] "POST /api/mode HTTP/1.1" 200 -
+  [VIF] Round 10: removing 'active_periods_3m'  VIF=3541.79
+  [VIF] Round 11: removing 'sum_gas_transport_all'  VIF=3385.03
+  [VIF] Round 12: removing 'mean_amt_6m'  VIF=2815.52
+  [VIF] Round 13: removing 'pct_evening_all'  VIF=2274.34
+  [VIF] Round 14: removing 'mean_amt_all'  VIF=2146.92
+  [VIF] Round 15: removing 'sum_grocery_net_all'  VIF=2135.61
+  [VIF] Round 16: removing 'sum_travel_all'  VIF=2092.95
+  [VIF] Round 17: removing 'pct_count_shopping_net_all'  VIF=1979.59
+  [VIF] Round 18: removing 'sum_grocery_pos_12m'  VIF=1893.75
+  [VIF] Round 19: removing 'sum_amt_all'  VIF=1718.33
+  [VIF] Round 20: removing 'sum_misc_pos_all'  VIF=1578.37
+  [VIF] Round 21: removing 'count_home_all'  VIF=1527.93
+  [VIF] Round 22: removing 'pct_sum_shopping_net_12m'  VIF=1368.29
+  [VIF] Round 23: removing 'count_kids_pets_12m'  VIF=1351.48
+  [VIF] Round 24: removing 'count_gas_transport_6m'  VIF=1176.87
+  [VIF] Round 25: removing 'count_food_dining_all'  VIF=1119.38
+  [VIF] Round 26: removing 'count_personal_care_all'  VIF=1093.86
+  [VIF] Round 27: removing 'count_health_fitness_all'  VIF=1078.07
+  [VIF] Round 28: removing 'count_grocery_net_12m'  VIF=1074.87
+  [VIF] Round 29: removing 'count_entertainment_12m'  VIF=971.41
+  [VIF] Round 30: removing 'mean_gas_transport_6m'  VIF=962.36
+  [VIF] Round 31: removing 'pct_high_amt_all'  VIF=910.09
+  [VIF] Round 32: removing 'median_amt_12m'  VIF=876.33
+  [VIF] Round 33: removing 'active_periods_all'  VIF=813.36
+  [VIF] Round 34: removing 'sum_amt_6m'  VIF=738.38
+  [VIF] Round 35: removing 'pct_sum_shopping_net_6m'  VIF=698.33
+  [VIF] Round 36: removing 'avg_gap_days_12m'  VIF=697.50
+  [VIF] Round 37: removing 'std_amt_12m'  VIF=668.03
+  [VIF] Round 38: removing 'sum_gas_transport_12m'  VIF=642.85
+  [VIF] Round 39: removing 'n_unique_merchant_all'  VIF=586.95
+  [VIF] Round 40: removing 'sum_home_12m'  VIF=585.46
+  [VIF] Round 41: removing 'sum_kids_pets_all'  VIF=565.04
+  [VIF] Round 42: removing 'sum_travel_6m'  VIF=547.16
+  [VIF] Round 43: removing 'sum_misc_pos_12m'  VIF=530.22
+  [VIF] Round 44: removing 'count_shopping_pos_12m'  VIF=527.31
+  [VIF] Round 45: removing 'count_health_fitness_12m'  VIF=453.38
+  [VIF] Round 46: removing 'count_grocery_pos_all'  VIF=447.40
+  [VIF] Round 47: removing 'mean_grocery_pos_12m'  VIF=430.10
+  [VIF] Round 48: removing 'std_amt_6m'  VIF=420.35
+  [VIF] Round 49: removing 'count_shopping_net_12m'  VIF=416.15
+  [VIF] Round 50: removing 'sum_entertainment_all'  VIF=405.80
+  [VIF] Round 51: removing 'count_home_12m'  VIF=395.83
+  [VIF] Round 52: removing 'pct_count_kids_pets_12m'  VIF=388.88
+  [VIF] Round 53: removing 'count_personal_care_12m'  VIF=386.49
+  [VIF] Round 54: removing 'mean_gas_transport_12m'  VIF=385.48
+  [VIF] Round 55: removing 'count_food_dining_12m'  VIF=370.65
+  [VIF] Round 56: removing 'event_count_3m'  VIF=361.46
+  [VIF] Round 57: removing 'median_amt_6m'  VIF=345.40
+  [VIF] Round 58: removing 'n_unique_category_all'  VIF=333.36
+  [VIF] Round 59: removing 'mean_entertainment_6m'  VIF=326.90
+  [VIF] Round 60: removing 'sum_grocery_net_12m'  VIF=324.67
+  [VIF] Round 61: removing 'trend_count_home'  VIF=319.70
+  [VIF] Round 62: removing 'n_unique_merchant_6m'  VIF=315.03
+  [VIF] Round 63: removing 'count_misc_pos_12m'  VIF=304.82
+  [VIF] Round 64: removing 'count_grocery_pos_12m'  VIF=292.50
+  [VIF] Round 65: removing 'mean_amt_3m'  VIF=286.49
+  [VIF] Round 66: removing 'sum_health_fitness_12m'  VIF=282.60
+  [VIF] Round 67: removing 'count_kids_pets_all'  VIF=278.02
+  [VIF] Round 68: removing 'sum_personal_care_12m'  VIF=277.82
+  [VIF] Round 69: removing 'pct_high_amt_12m'  VIF=264.46
+  [VIF] Round 70: removing 'sum_food_dining_all'  VIF=255.35
+  [VIF] Round 71: removing 'count_misc_net_12m'  VIF=253.93
+  [VIF] Round 72: removing 'pct_count_health_fitness_12m'  VIF=248.70
+  [VIF] Round 73: removing 'count_entertainment_all'  VIF=237.92
+  [VIF] Round 74: removing 'pct_sum_misc_net_all'  VIF=231.50
+  [VIF] Round 75: removing 'count_grocery_net_6m'  VIF=222.29
+  [VIF] Round 76: removing 'pct_sum_gas_transport_12m'  VIF=214.87
+  [VIF] Round 77: removing 'avg_gap_days_6m'  VIF=203.45
+  [VIF] Round 78: removing 'count_gas_transport_all'  VIF=196.76
+  [VIF] Round 79: removing 'count_shopping_pos_all'  VIF=172.19
+  [VIF] Round 80: removing 'mean_kids_pets_12m'  VIF=169.28
+127.0.0.1 - - [06/Jun/2026 21:20:20] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:20:20] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:20:20] "GET /static/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:20:20] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:20:20] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:20:20] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:20:20] "GET /api/events/stream HTTP/1.1" 200 -
+  [VIF] Round 81: removing 'sum_grocery_pos_6m'  VIF=167.08
+  [VIF] Round 82: removing 'mean_health_fitness_12m'  VIF=163.07
+  [VIF] Round 83: removing 'count_shopping_net_all'  VIF=145.18
+  [VIF] Round 84: removing 'sum_home_all'  VIF=142.41
+  [VIF] Round 85: removing 'mean_personal_care_12m'  VIF=139.72
+  [VIF] Round 86: removing 'sum_entertainment_12m'  VIF=135.34
+  [VIF] Round 87: removing 'pct_sum_shopping_pos_12m'  VIF=132.88
+  [VIF] Round 88: removing 'pct_count_grocery_net_12m'  VIF=127.42
+  [VIF] Round 89: removing 'count_home_6m'  VIF=125.98
+  [VIF] Round 90: removing 'pct_sum_grocery_pos_12m'  VIF=121.45
+127.0.0.1 - - [06/Jun/2026 21:21:00] "POST /api/decision HTTP/1.1" 200 -
+  [VIF] Round 91: removing 'pct_sum_food_dining_12m'  VIF=114.90
+  [VIF] Round 92: removing 'pct_count_home_12m'  VIF=113.27
+  [VIF] Round 93: removing 'count_grocery_net_all'  VIF=111.27
+  [VIF] Round 94: removing 'count_travel_12m'  VIF=109.60
+  [VIF] Round 95: removing 'sum_misc_pos_6m'  VIF=109.29
+  [VIF] Round 96: removing 'count_kids_pets_6m'  VIF=107.95
+  [VIF] Round 97: removing 'count_misc_net_all'  VIF=106.61
+  [VIF] Round 98: removing 'trend_count_food_dining'  VIF=105.15
+  [VIF] Round 99: removing 'pct_sum_kids_pets_12m'  VIF=104.79
+  [VIF] Round 100: removing 'count_health_fitness_6m'  VIF=101.49
+  [VIF] Round 101: removing 'count_misc_pos_all'  VIF=98.91
+  [VIF] Round 102: removing 'pct_count_grocery_pos_all'  VIF=96.48
+  [VIF] Round 103: removing 'sum_health_fitness_all'  VIF=91.36
+  [VIF] Round 104: removing 'sum_kids_pets_12m'  VIF=90.50
+  [VIF] Round 105: removing 'sum_personal_care_all'  VIF=89.56
+  [VIF] Round 106: removing 'pct_count_gas_transport_6m'  VIF=86.26
+  [VIF] Round 107: removing 'sum_shopping_pos_all'  VIF=84.93
+  [VIF] Round 108: removing 'pct_count_personal_care_12m'  VIF=82.18
+  [VIF] Round 109: removing 'median_amt_all'  VIF=80.00
+  [VIF] Round 110: removing 'pct_sum_gas_transport_all'  VIF=79.84
+  [VIF] Round 111: removing 'count_personal_care_6m'  VIF=79.60
+  [VIF] Round 112: removing 'count_entertainment_6m'  VIF=78.62
+  [VIF] Round 113: removing 'mean_grocery_pos_6m'  VIF=77.83
+  [VIF] Round 114: removing 'max_amt_3m'  VIF=75.75
+  [VIF] Round 115: removing 'sum_food_dining_12m'  VIF=71.61
+  [VIF] Round 116: removing 'pct_sum_misc_pos_12m'  VIF=70.36
+  [VIF] Round 117: removing 'pct_sum_entertainment_12m'  VIF=70.21
+  [VIF] Round 118: removing 'pct_sum_home_12m'  VIF=68.95
+  [VIF] Round 119: removing 'count_food_dining_6m'  VIF=67.70
+  [VIF] Round 120: removing 'trend_sum_gas_transport'  VIF=66.14
+  [VIF] Round 121: removing 'mean_kids_pets_6m'  VIF=63.35
+  [VIF] Round 122: removing 'pct_sum_health_fitness_12m'  VIF=62.64
+  [VIF] Round 123: removing 'pct_high_amt_6m'  VIF=61.25
+  [VIF] Round 124: removing 'mean_grocery_net_all'  VIF=59.36
+  [VIF] Round 125: removing 'pct_sum_misc_net_12m'  VIF=55.71
+  [VIF] Round 126: removing 'pct_sum_grocery_net_12m'  VIF=55.17
+  [VIF] Round 127: removing 'mean_entertainment_all'  VIF=54.57
+127.0.0.1 - - [06/Jun/2026 21:22:33] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:22:33] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:22:33] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:22:33] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:22:33] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:22:34] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:22:34] "GET /api/events/stream HTTP/1.1" 200 -
+  [VIF] Round 128: removing 'trend_count_health_fitness'  VIF=53.85
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from FeatureSelector (evidence)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from DatasetExaminer (evidence)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from FeatureSelector (evidence)  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Clusterer (evidence)
+
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Clusterer (evidence)
+  [VIF] Round 129: removing 'pct_sum_travel_all'  VIF=53.68
+  [Orchestrator → EvidenceExplainer] LLM response received (624 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:39] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator → EvidenceExplainer] LLM response received (714 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:39] "POST /api/explain HTTP/1.1" 200 -
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Clusterer (evidence)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Classifier (evidence)
+  [Orchestrator → EvidenceExplainer] LLM response received (694 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:39] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator → EvidenceExplainer] LLM response received (688 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:39] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator → EvidenceExplainer] LLM response received (645 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:39] "POST /api/explain HTTP/1.1" 200 -
+  [VIF] Round 130: removing 'mean_personal_care_6m'  VIF=51.45
+  [VIF] Round 131: removing 'pct_count_grocery_pos_6m'  VIF=50.74
+  [VIF] Round 132: removing 'pct_sum_kids_pets_all'  VIF=49.06
+  [Orchestrator → EvidenceExplainer] LLM response received (587 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:43] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator → EvidenceExplainer] LLM response received (736 chars)
+127.0.0.1 - - [06/Jun/2026 21:22:45] "POST /api/explain HTTP/1.1" 200 -
+  [VIF] Round 133: removing 'sum_grocery_pos_all'  VIF=47.42
+  [VIF] Round 134: removing 'avg_gap_days_all'  VIF=47.25
+  [VIF] Round 135: removing 'max_amt_12m'  VIF=45.23
+  [VIF] Round 136: removing 'mean_food_dining_12m'  VIF=43.51
+  [VIF] Round 137: removing 'pct_sum_home_all'  VIF=43.22
+  [VIF] Round 138: removing 'count_shopping_pos_6m'  VIF=42.77
+  [VIF] Round 139: removing 'pct_morning_all'  VIF=42.11
+  [VIF] Round 140: removing 'pct_sum_personal_care_12m'  VIF=41.85
+  [VIF] Round 141: removing 'sum_amt_3m'  VIF=41.67
+  [VIF] Round 142: removing 'pct_count_entertainment_all'  VIF=38.84
+  [VIF] Round 143: removing 'mean_shopping_pos_6m'  VIF=38.37
+  [VIF] Round 144: removing 'trend_sum_grocery_pos'  VIF=36.77
+  [VIF] Round 145: removing 'pct_count_food_dining_12m'  VIF=36.53
+127.0.0.1 - - [06/Jun/2026 21:23:05] "POST /api/decision HTTP/1.1" 200 -
+  [VIF] Round 146: removing 'mean_shopping_net_6m'  VIF=35.95
+  [VIF] Round 147: removing 'trend_count_grocery_net'  VIF=35.36
+  [VIF] Round 148: removing 'sum_misc_net_12m'  VIF=35.29
+  [VIF] Round 149: removing 'days_since_last'  VIF=34.86
+  [VIF] Round 150: removing 'sum_shopping_net_12m'  VIF=34.32
+  [VIF] Round 151: removing 'pct_sum_health_fitness_all'  VIF=33.92
+  [VIF] Round 152: removing 'mean_travel_6m'  VIF=33.72
+  [VIF] Round 153: removing 'median_amt_3m'  VIF=33.22
+  [VIF] Round 154: removing 'pct_sum_food_dining_all'  VIF=32.65
+  [VIF] Round 155: removing 'pct_count_gas_transport_12m'  VIF=32.26
+  [VIF] Round 156: removing 'count_travel_all'  VIF=31.69
+  [VIF] Round 157: removing 'pct_sum_health_fitness_6m'  VIF=31.53
+  [VIF] Round 158: removing 'count_misc_pos_6m'  VIF=31.37
+  [VIF] Round 159: removing 'mean_misc_net_6m'  VIF=30.84
+  [VIF] Round 160: removing 'max_amt_6m'  VIF=30.51
+127.0.0.1 - - [06/Jun/2026 21:23:25] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:23:25] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:23:25] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:23:25] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:23:25] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:23:25] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:23:25] "GET /api/events/stream HTTP/1.1" 200 -
+  [VIF] Round 161: removing 'sum_shopping_pos_12m'  VIF=30.34
+  [VIF] Round 162: removing 'pct_midday_6m'  VIF=28.81
+  [VIF] Round 163: removing 'std_amt_all'  VIF=28.41
+  [VIF] Round 164: removing 'count_shopping_net_6m'  VIF=27.77
+127.0.0.1 - - [06/Jun/2026 21:23:32] "POST /api/decision HTTP/1.1" 200 -
+  [VIF] Round 165: removing 'sum_entertainment_6m'  VIF=27.26
+  [VIF] Round 166: removing 'trend_count_kids_pets'  VIF=27.14
+  [VIF] Round 167: removing 'mean_misc_pos_all'  VIF=26.04
+  [VIF] Round 168: removing 'sum_home_6m'  VIF=25.59
+  [VIF] Round 169: removing 'count_misc_net_6m'  VIF=25.01
+  [VIF] Round 170: removing 'sum_kids_pets_6m'  VIF=24.36
+  [VIF] Round 171: removing 'pct_count_home_all'  VIF=23.99
+  [VIF] Round 172: removing 'pct_count_travel_12m'  VIF=23.81
+  [VIF] Round 173: removing 'pct_sum_grocery_net_all'  VIF=23.71
+  [VIF] Round 174: removing 'pct_sum_gas_transport_6m'  VIF=22.09
+  [VIF] Round 175: removing 'pct_sum_food_dining_6m'  VIF=21.47
+  [VIF] Round 176: removing 'pct_count_entertainment_12m'  VIF=20.84
+  [VIF] Round 177: removing 'pct_sum_personal_care_all'  VIF=19.88
+  [VIF] Round 178: removing 'mean_kids_pets_all'  VIF=19.80
+  [VIF] Round 179: removing 'pct_count_shopping_pos_12m'  VIF=19.68
+  [VIF] Round 180: removing 'mean_misc_pos_6m'  VIF=19.46
+  [VIF] Round 181: removing 'mean_health_fitness_all'  VIF=18.70
+  [VIF] Round 182: removing 'pct_count_shopping_net_12m'  VIF=18.67
+  [VIF] Round 183: removing 'count_grocery_pos_6m'  VIF=17.50
+  [VIF] Round 184: removing 'pct_count_grocery_net_6m'  VIF=16.77
+  [VIF] Round 185: removing 'pct_count_home_6m'  VIF=16.12
+  [VIF] Round 186: removing 'sum_grocery_net_6m'  VIF=15.83
+  [VIF] Round 187: removing 'pct_sum_shopping_pos_6m'  VIF=15.52
+  [VIF] Round 188: removing 'mean_gas_transport_all'  VIF=15.05
+  [VIF] Round 189: removing 'sum_misc_net_6m'  VIF=14.89
+  [VIF] Round 190: removing 'pct_count_misc_pos_12m'  VIF=14.44
+  [VIF] Round 191: removing 'mean_grocery_pos_all'  VIF=14.28
+  [VIF] Round 192: removing 'mean_misc_net_12m'  VIF=14.04
+  [VIF] Round 193: removing 'sum_personal_care_6m'  VIF=13.98
+  [VIF] Round 194: removing 'mean_home_12m'  VIF=13.69
+  [VIF] Round 195: removing 'pct_midday_all'  VIF=13.51
+  [VIF] Round 196: removing 'streak_grocery_pos'  VIF=13.47
+  [VIF] Round 197: removing 'pct_sum_grocery_pos_6m'  VIF=13.27
+  [VIF] Round 198: removing 'sum_health_fitness_6m'  VIF=13.04
+  [VIF] Round 199: removing 'pct_count_food_dining_all'  VIF=12.58
+  [VIF] Round 200: removing 'pct_count_personal_care_6m'  VIF=12.44
+  [VIF] Warning: max_iterations (200) reached.
+  After VIF gate: 98 features  (removed 205)
+  High-correlation pairs (|r|>0.85):
+    mean_travel_12m ↔ mean_travel_all  r=0.913
+    trend_count_personal_care ↔ trend_sum_personal_care  r=0.890
+    mean_grocery_net_6m ↔ mean_grocery_net_12m  r=0.890
+    mean_food_dining_6m ↔ mean_food_dining_all  r=0.889
+    pct_count_kids_pets_6m ↔ pct_count_kids_pets_all  r=0.872
+  [FeatureSelector → Orchestrator] Requesting LLM: select best feature subset from 98 VIF-filtered candidates (pipeline)
+
+  [Orchestrator] ← FeatureSelector requests LLM help: select best feature subset from 98 VIF-filtered candidates (pipeline)
+  [Orchestrator] → FeatureSelector: LLM answered (in=2887 out=730 11.18s)
+  [Orchestrator → FeatureSelector] LLM response received (2147 chars)
+  Selected 40 features.
+  VIF removed: 205  |  Max VIF remaining: 12.30
+  Reasoning: Selected features focus on behavioral ratios (pct_count_* and pct_weekend), spending trend directions (trend_sum_* and trend_count_*), and normalized category-level means to capture merchant category diversity, time-of-day/week patterns, and spend trajectory — all dimensions highlighted by the orchestrator. Highly correlated pairs were pruned by keeping the most informative variant (e.g. trend_sum_personal_care over trend_count_personal_care where both survived, keeping mean_food_dining_6m instead of the all-window duplicate, and using mean_travel_6m instead of mean_travel_all). Raw geographic and population aggregates like city_pop were excluded per orchestrator guidance to avoid noise that dilutes behavioral cluster separation.
+  [Bus] ⚠ FeatureSelector (iter 4): WARNING — Scored 303 features (PCA+AE). Removed 205 via VIF gate. LLM selected 40 from 98 
+         Issue: Some features still have VIF > 12.0 (max=12.3).
+         Doubt: 7 high-correlation pairs still present after VIF gate — LLM was asked to avoid both in each pair.
+  [Orchestrator] Pre-modelling preview saved (stage=feature_selection, iter 4, 983×40)
+
+[Clusterer] Iteration 4
+  Config overrides: {'clustering_algorithm': 'gmm', 'k_search_range': [6, 7, 8, 9, 10]}
+  Algorithm: gmm (from config)
+  [SilhouetteOptimizer] Trying k ∈ [6, 7, 8, 9, 10] with algorithm=kmeans
+    k=  6  sil=0.1147  DB=1.9855  CH=205.5
+127.0.0.1 - - [06/Jun/2026 21:24:12] "POST /api/explain HTTP/1.1" 200 -
+    k=  7  sil=0.1155  DB=2.2281  CH=184.8
+    k=  8  sil=0.1163  DB=1.9341  CH=169.3
+    k=  9  sil=0.1143  DB=2.0782  CH=155.9
+    k= 10  sil=0.1193  DB=2.0163  CH=143.9
+  [SilhouetteOptimizer] WARNING: Best silhouette (0.116) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  [SilhouetteOptimizer] Best k=8  composite=0.613  sil=0.1163  DB=1.9341  CH=169.2
+  k auto-selected: 8  composite=0.613  silhouette=0.1163  DB=1.9341  CH=169.2
+  WARNING: Best silhouette (0.116) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  Initial clustering: 8 clusters  |  silhouette=0.1141
+  Round 1: no oversized cluster. Deepening done.
+  Final: 8 leaf clusters  |  silhouette=0.1141
+  [Bus] ⚠ Clusterer (iter 4): WARNING — Used GaussianMixture with k=8 (auto-selected via silhouette). Ran deepening loop
+         Issue: Silhouette=0.114 < target 0.50 — orchestrator will reselect features (or escalate after 3 consecutive misses).
+         Doubt: Silhouette improved 0.114→0.114 across k range — marginal gain.
+  [Orchestrator] PCA snapshot saved (iter 4, 983 points)
+
+[PersonaNamer] Iteration 4  (tone: 'easy')
+  Prepared cluster prompt for 8 clusters — asking Orchestrator for naming...
+  Must-have cluster types: ['traveller']
+  [PersonaNamer] Injected 21 lines of UI feedback.
+  [PersonaNamer → Orchestrator] Requesting LLM: name and describe 8 clusters (tone='easy') (pipeline)
+
+  [Orchestrator] ← PersonaNamer requests LLM help: name and describe 8 clusters (tone='easy') (pipeline)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Clusterer (evidence)
+  [Orchestrator → EvidenceExplainer] LLM response received (704 chars)
+127.0.0.1 - - [06/Jun/2026 21:24:19] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator] → PersonaNamer: LLM answered (in=6452 out=2323 44.69s)
+  [Orchestrator → PersonaNamer] LLM response received (8240 chars)
+  [best-effort] Clarity Gate bypassed — delivering best available personas.
+  Cluster 0  [depth 0]: "Frequent Flyers & Road Warriors"  conf=9/10
+  Cluster 1  [depth 0]: "Lapsed Big-Ticket Online Shoppers"  conf=8/10
+  Cluster 2  [depth 0]: "Elite Active Online Luxury Shoppers"  conf=7/10
+  Cluster 3  [depth 0]: "Grocery-Obsessed Female Bulk Buyers"  conf=9/10
+  Cluster 4  [depth 0]: "Dormant Premium Shoppers"  conf=7/10
+  Cluster 5  [depth 0]: "Small-Town Gas & Grocery Regulars"  conf=8/10
+  Cluster 6  [depth 0]: "Entertainment & Miscellaneous Spenders"  conf=6/10
+  Cluster 7  [depth 0]: "Urban Family Diners"  conf=8/10
+  Clarity Gate PASSED  (avg_conf=7.8, unique=True)
+  [Bus] ✓ PersonaNamer (iter 4): SUCCESS — Named 8 clusters using LLM (tone='easy'). Clarity Gate PASSED. Avg confidence=7.
+         Issue: [forced] Must-have cluster type(s) not found in any persona name/description: ['traveller']
+
+[Classifier] Iteration 4
+  Entities: 983  |  Personas (classes): 8
+  Class distribution:
+    Grocery-Obsessed Female Bulk Buyers            259 (26.3%)
+    Frequent Flyers & Road Warriors                239 (24.3%)
+    Small-Town Gas & Grocery Regulars              227 (23.1%)
+    Urban Family Diners                            183 (18.6%)
+    Lapsed Big-Ticket Online Shoppers               28 (2.8%)
+    Dormant Premium Shoppers                        25 (2.5%)
+    Elite Active Online Luxury Shoppers             11 (1.1%)
+    Entertainment & Miscellaneous Spenders          11 (1.1%)
+  [Classifier → Orchestrator] Requesting LLM: select classifier model based on dataset characteristics (pipeline)
+
+  [Orchestrator] ← Classifier requests LLM help: select classifier model based on dataset characteristics (pipeline)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from PersonaNamer (evidence)
+  [Orchestrator] → Classifier: LLM answered (in=1177 out=89 2.81s)
+  [Orchestrator → Classifier] LLM response received (366 chars)
+  [Classifier] LLM selected model: random_forest  (The previous SVM model yielded a low macro-F1 of 0.454, suggesting it's not the best fit despite the high-dimensional data. Random forest is a robust baseline that handles high-dimensional tabular data well and switching to a tree-based ensemble family is a logical next step given the poor linear/margin-based performance.)
+  Using classifier: random_forest
+  Running 5-fold stratified CV ...
+  CV accuracy    : 0.9664
+  CV F1 (macro)  : 0.8499  (threshold ≥ 0.7)
+  CV F1 (weighted): 0.9661
+  Per-class F1:
+    Elite Active Online Luxury Shoppers           0.381  ███████
+    Entertainment & Miscellaneous Spenders        0.636  ████████████
+    Dormant Premium Shoppers                      0.863  █████████████████
+    Frequent Flyers & Road Warriors               0.970  ███████████████████
+    Small-Town Gas & Grocery Regulars             0.978  ███████████████████
+    Grocery-Obsessed Female Bulk Buyers           0.979  ███████████████████
+    Urban Family Diners                           0.992  ███████████████████
+    Lapsed Big-Ticket Online Shoppers             1.000  ████████████████████
+  [Orchestrator → EvidenceExplainer] LLM response received (755 chars)
+127.0.0.1 - - [06/Jun/2026 21:25:03] "POST /api/explain HTTP/1.1" 200 -
+  Top 10 features: ['gender_M', 'pct_count_personal_care_12m', 'pct_count_grocery_net_all', 'pct_sum_grocery_net_all', 'pct_count_personal_care_all', 'pct_midday_all', 'mean_grocery_net_all', 'pct_evening_all', 'pct_count_grocery_net_12m', 'pct_night_all']
+  Performance OK — proceeding.
+  [Bus] ✓ Classifier (iter 4): SUCCESS — Trained random_forest, 5-fold stratified CV. CV macro-F1=0.850 ≥ 0.7 threshold.
+         Doubt: Lowest-F1 personas: Elite Active Online Luxury Shoppers(0.38), Entertainment & Miscellaneous Spenders(0.64), Dormant Premium Shoppers(0.86)
+  [Orchestrator] iter 4 is new BEST (F1=0.850, Sil=0.114, maxVIF=12.30, score=82.96)
+
+[Orchestrator] Silhouette 0.114 < target 0.50 (re-engineer counter 2/3 · relax counter 2/3).
+  [Orchestrator] Injected user-preference block into tuning prompt.
+  [Orchestrator] Injected case-memory hint block (match=exact) into tuning prompt.
+
+  [Orchestrator] Asking LLM to tune parameters for iteration 5...
+  [Orchestrator → Orchestrator] Requesting LLM: tune pipeline parameters based on iteration failures (pipeline)
+
+  [Orchestrator] ← Orchestrator requests LLM help: tune pipeline parameters based on iteration failures (pipeline)
+  [Orchestrator] → Orchestrator: LLM answered (in=3829 out=244 6.26s)
+  [Orchestrator → Orchestrator] LLM response received (867 chars)
+  [Orchestrator] Tuned → vif=12.0, algo=kmeans, k_range=[7, 8, 9, 10, 11, 12], min_sil=0.05, text_vec=None
+  [Orchestrator] Reasoning: Switching from GMM back to KMeans which was the winning algorithm in the prior successful run (sil=0.158, k=8). Expanding k_range upward to [7–12] to increase chances of surfacing a traveller-specific cluster, and adding explicit travel-related merchant category emphasis to feature_focus since the must-have 'traveller' cluster type was missed this iteration.
+
+─────────────────────────────────────────────────────────────────
+ITERATION 5 / 5
+─────────────────────────────────────────────────────────────────
+
+[FeatureSelector] Iteration 5  (vif_threshold=12.0)
+  Feedback from previous round: silhouette 0.114 < target 0.50
+Orchestrator guidance: transaction frequency, amount variability, merchant category diversity, time-of-day and day-of-week patterns, travel-related merchant categories (airlines, hotels, gas stations) — avoid raw geographic or population aggregates; focus on behavioral ratios and normalized spend features rather than absolute amounts
+  Features: 303  |  Entities: 983
+  AE bottleneck=32  (cap=32, max_iter=200)
+/Users/tzu-chunchen/Documents/AI/AI_Personalization/.venv/lib/python3.13/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (200) reached and the optimization hasn't converged yet.
+  warnings.warn(
+  Running VIF gate (threshold=12.0)...
+  [VIF] Pre-pass: dropping 5 linearly dependent features: ['event_count_6m', 'event_count_12m', 'event_count_all', 'n_unique_city_6m', 'n_unique_city_all']
+  [VIF] Round 1: removing 'active_periods_6m'  VIF=17266.36
+  [VIF] Round 2: removing 'active_periods_12m'  VIF=12519.42
+  [VIF] Round 3: removing 'pct_evening_6m'  VIF=11874.55
+  [VIF] Round 4: removing 'mean_amt_12m'  VIF=9818.03
+  [VIF] Round 5: removing 'count_gas_transport_12m'  VIF=8171.22
+  [VIF] Round 6: removing 'pct_sum_shopping_net_all'  VIF=7503.36
+  [VIF] Round 7: removing 'n_unique_category_6m'  VIF=5723.38
+  [VIF] Round 8: removing 'sum_amt_12m'  VIF=4650.69
+  [VIF] Round 9: removing 'sum_travel_12m'  VIF=4141.69
+  [VIF] Round 10: removing 'active_periods_3m'  VIF=3541.79
+  [VIF] Round 11: removing 'sum_gas_transport_all'  VIF=3385.03
+  [VIF] Round 12: removing 'mean_amt_6m'  VIF=2815.52
+  [VIF] Round 13: removing 'pct_evening_all'  VIF=2274.34
+  [VIF] Round 14: removing 'mean_amt_all'  VIF=2146.92
+  [VIF] Round 15: removing 'sum_grocery_net_all'  VIF=2135.61
+  [VIF] Round 16: removing 'sum_travel_all'  VIF=2092.95
+  [VIF] Round 17: removing 'pct_count_shopping_net_all'  VIF=1979.59
+  [VIF] Round 18: removing 'sum_grocery_pos_12m'  VIF=1893.75
+  [VIF] Round 19: removing 'sum_amt_all'  VIF=1718.33
+  [VIF] Round 20: removing 'sum_misc_pos_all'  VIF=1578.37
+  [VIF] Round 21: removing 'count_home_all'  VIF=1527.93
+  [VIF] Round 22: removing 'pct_sum_shopping_net_12m'  VIF=1368.29
+  [VIF] Round 23: removing 'count_kids_pets_12m'  VIF=1351.48
+  [VIF] Round 24: removing 'count_gas_transport_6m'  VIF=1176.87
+  [VIF] Round 25: removing 'count_food_dining_all'  VIF=1119.38
+  [VIF] Round 26: removing 'count_personal_care_all'  VIF=1093.86
+  [VIF] Round 27: removing 'count_health_fitness_all'  VIF=1078.07
+  [VIF] Round 28: removing 'count_grocery_net_12m'  VIF=1074.87
+  [VIF] Round 29: removing 'count_entertainment_12m'  VIF=971.41
+  [VIF] Round 30: removing 'mean_gas_transport_6m'  VIF=962.36
+  [VIF] Round 31: removing 'pct_high_amt_all'  VIF=910.09
+  [VIF] Round 32: removing 'median_amt_12m'  VIF=876.33
+  [VIF] Round 33: removing 'active_periods_all'  VIF=813.36
+  [VIF] Round 34: removing 'sum_amt_6m'  VIF=738.38
+  [VIF] Round 35: removing 'pct_sum_shopping_net_6m'  VIF=698.33
+  [VIF] Round 36: removing 'avg_gap_days_12m'  VIF=697.50
+  [VIF] Round 37: removing 'std_amt_12m'  VIF=668.03
+  [VIF] Round 38: removing 'sum_gas_transport_12m'  VIF=642.85
+  [VIF] Round 39: removing 'n_unique_merchant_all'  VIF=586.95
+  [VIF] Round 40: removing 'sum_home_12m'  VIF=585.46
+  [VIF] Round 41: removing 'sum_kids_pets_all'  VIF=565.04
+  [VIF] Round 42: removing 'sum_travel_6m'  VIF=547.16
+  [VIF] Round 43: removing 'sum_misc_pos_12m'  VIF=530.22
+  [VIF] Round 44: removing 'count_shopping_pos_12m'  VIF=527.31
+  [VIF] Round 45: removing 'count_health_fitness_12m'  VIF=453.38
+  [VIF] Round 46: removing 'count_grocery_pos_all'  VIF=447.40
+127.0.0.1 - - [06/Jun/2026 21:30:04] "[36mGET / HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:30:04] "[36mGET /static/style.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:30:04] "[36mGET /static/app.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [06/Jun/2026 21:30:04] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:30:04] "GET /api/events HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:30:04] "GET /api/mode HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:30:04] "GET /api/events/stream HTTP/1.1" 200 -
+  [VIF] Round 47: removing 'mean_grocery_pos_12m'  VIF=430.10
+127.0.0.1 - - [06/Jun/2026 21:30:11] "POST /api/decision HTTP/1.1" 200 -
+  [VIF] Round 48: removing 'std_amt_6m'  VIF=420.35
+127.0.0.1 - - [06/Jun/2026 21:30:17] "GET /api/evidence HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:30:17] "GET /api/outputs-files HTTP/1.1" 200 -
+  [VIF] Round 49: removing 'count_shopping_net_12m'  VIF=416.15
+  [VIF] Round 50: removing 'sum_entertainment_all'  VIF=405.80
+  [VIF] Round 51: removing 'count_home_12m'  VIF=395.83
+  [VIF] Round 52: removing 'pct_count_kids_pets_12m'  VIF=388.88
+  [VIF] Round 53: removing 'count_personal_care_12m'  VIF=386.49
+  [VIF] Round 54: removing 'mean_gas_transport_12m'  VIF=385.48
+  [VIF] Round 55: removing 'count_food_dining_12m'  VIF=370.65
+  [VIF] Round 56: removing 'event_count_3m'  VIF=361.46
+  [VIF] Round 57: removing 'median_amt_6m'  VIF=345.40
+  [VIF] Round 58: removing 'n_unique_category_all'  VIF=333.36
+  [VIF] Round 59: removing 'mean_entertainment_6m'  VIF=326.90
+  [VIF] Round 60: removing 'sum_grocery_net_12m'  VIF=324.67
+  [VIF] Round 61: removing 'trend_count_home'  VIF=319.70
+  [VIF] Round 62: removing 'n_unique_merchant_6m'  VIF=315.03
+  [VIF] Round 63: removing 'count_misc_pos_12m'  VIF=304.82
+  [VIF] Round 64: removing 'count_grocery_pos_12m'  VIF=292.50
+  [VIF] Round 65: removing 'mean_amt_3m'  VIF=286.49
+  [VIF] Round 66: removing 'sum_health_fitness_12m'  VIF=282.60
+  [VIF] Round 67: removing 'count_kids_pets_all'  VIF=278.02
+  [VIF] Round 68: removing 'sum_personal_care_12m'  VIF=277.82
+  [VIF] Round 69: removing 'pct_high_amt_12m'  VIF=264.46
+  [VIF] Round 70: removing 'sum_food_dining_all'  VIF=255.35
+  [VIF] Round 71: removing 'count_misc_net_12m'  VIF=253.93
+  [VIF] Round 72: removing 'pct_count_health_fitness_12m'  VIF=248.70
+  [VIF] Round 73: removing 'count_entertainment_all'  VIF=237.92
+  [VIF] Round 74: removing 'pct_sum_misc_net_all'  VIF=231.50
+  [VIF] Round 75: removing 'count_grocery_net_6m'  VIF=222.29
+  [VIF] Round 76: removing 'pct_sum_gas_transport_12m'  VIF=214.87
+  [VIF] Round 77: removing 'avg_gap_days_6m'  VIF=203.45
+  [VIF] Round 78: removing 'count_gas_transport_all'  VIF=196.76
+  [VIF] Round 79: removing 'count_shopping_pos_all'  VIF=172.19
+  [VIF] Round 80: removing 'mean_kids_pets_12m'  VIF=169.28
+  [VIF] Round 81: removing 'sum_grocery_pos_6m'  VIF=167.08
+  [VIF] Round 82: removing 'mean_health_fitness_12m'  VIF=163.07
+  [VIF] Round 83: removing 'count_shopping_net_all'  VIF=145.18
+  [VIF] Round 84: removing 'sum_home_all'  VIF=142.41
+  [VIF] Round 85: removing 'mean_personal_care_12m'  VIF=139.72
+  [VIF] Round 86: removing 'sum_entertainment_12m'  VIF=135.34
+  [VIF] Round 87: removing 'pct_sum_shopping_pos_12m'  VIF=132.88
+  [VIF] Round 88: removing 'pct_count_grocery_net_12m'  VIF=127.42
+  [VIF] Round 89: removing 'count_home_6m'  VIF=125.98
+  [VIF] Round 90: removing 'pct_sum_grocery_pos_12m'  VIF=121.45
+  [VIF] Round 91: removing 'pct_sum_food_dining_12m'  VIF=114.90
+  [VIF] Round 92: removing 'pct_count_home_12m'  VIF=113.27
+  [VIF] Round 93: removing 'count_grocery_net_all'  VIF=111.27
+  [VIF] Round 94: removing 'count_travel_12m'  VIF=109.60
+  [VIF] Round 95: removing 'sum_misc_pos_6m'  VIF=109.29
+  [VIF] Round 96: removing 'count_kids_pets_6m'  VIF=107.95
+  [VIF] Round 97: removing 'count_misc_net_all'  VIF=106.61
+  [VIF] Round 98: removing 'trend_count_food_dining'  VIF=105.15
+  [VIF] Round 99: removing 'pct_sum_kids_pets_12m'  VIF=104.79
+  [VIF] Round 100: removing 'count_health_fitness_6m'  VIF=101.49
+  [VIF] Round 101: removing 'count_misc_pos_all'  VIF=98.91
+  [VIF] Round 102: removing 'pct_count_grocery_pos_all'  VIF=96.48
+  [VIF] Round 103: removing 'sum_health_fitness_all'  VIF=91.36
+  [VIF] Round 104: removing 'sum_kids_pets_12m'  VIF=90.50
+  [VIF] Round 105: removing 'sum_personal_care_all'  VIF=89.56
+  [VIF] Round 106: removing 'pct_count_gas_transport_6m'  VIF=86.26
+  [VIF] Round 107: removing 'sum_shopping_pos_all'  VIF=84.93
+  [VIF] Round 108: removing 'pct_count_personal_care_12m'  VIF=82.18
+  [VIF] Round 109: removing 'median_amt_all'  VIF=80.00
+  [VIF] Round 110: removing 'pct_sum_gas_transport_all'  VIF=79.84
+  [VIF] Round 111: removing 'count_personal_care_6m'  VIF=79.60
+  [VIF] Round 112: removing 'count_entertainment_6m'  VIF=78.62
+  [VIF] Round 113: removing 'mean_grocery_pos_6m'  VIF=77.83
+  [VIF] Round 114: removing 'max_amt_3m'  VIF=75.75
+  [VIF] Round 115: removing 'sum_food_dining_12m'  VIF=71.61
+  [VIF] Round 116: removing 'pct_sum_misc_pos_12m'  VIF=70.36
+  [VIF] Round 117: removing 'pct_sum_entertainment_12m'  VIF=70.21
+  [VIF] Round 118: removing 'pct_sum_home_12m'  VIF=68.95
+  [VIF] Round 119: removing 'count_food_dining_6m'  VIF=67.70
+  [VIF] Round 120: removing 'trend_sum_gas_transport'  VIF=66.14
+  [VIF] Round 121: removing 'mean_kids_pets_6m'  VIF=63.35
+  [VIF] Round 122: removing 'pct_sum_health_fitness_12m'  VIF=62.64
+  [VIF] Round 123: removing 'pct_high_amt_6m'  VIF=61.25
+  [VIF] Round 124: removing 'mean_grocery_net_all'  VIF=59.36
+  [VIF] Round 125: removing 'pct_sum_misc_net_12m'  VIF=55.71
+  [VIF] Round 126: removing 'pct_sum_grocery_net_12m'  VIF=55.17
+  [VIF] Round 127: removing 'mean_entertainment_all'  VIF=54.57
+  [VIF] Round 128: removing 'trend_count_health_fitness'  VIF=53.85
+  [VIF] Round 129: removing 'pct_sum_travel_all'  VIF=53.68
+  [VIF] Round 130: removing 'mean_personal_care_6m'  VIF=51.45
+  [VIF] Round 131: removing 'pct_count_grocery_pos_6m'  VIF=50.74
+  [VIF] Round 132: removing 'pct_sum_kids_pets_all'  VIF=49.06
+  [VIF] Round 133: removing 'sum_grocery_pos_all'  VIF=47.42
+  [VIF] Round 134: removing 'avg_gap_days_all'  VIF=47.25
+  [VIF] Round 135: removing 'max_amt_12m'  VIF=45.23
+  [VIF] Round 136: removing 'mean_food_dining_12m'  VIF=43.51
+  [VIF] Round 137: removing 'pct_sum_home_all'  VIF=43.22
+  [VIF] Round 138: removing 'count_shopping_pos_6m'  VIF=42.77
+  [VIF] Round 139: removing 'pct_morning_all'  VIF=42.11
+  [VIF] Round 140: removing 'pct_sum_personal_care_12m'  VIF=41.85
+  [VIF] Round 141: removing 'sum_amt_3m'  VIF=41.67
+  [VIF] Round 142: removing 'pct_count_entertainment_all'  VIF=38.84
+  [VIF] Round 143: removing 'mean_shopping_pos_6m'  VIF=38.37
+  [VIF] Round 144: removing 'trend_sum_grocery_pos'  VIF=36.77
+  [VIF] Round 145: removing 'pct_count_food_dining_12m'  VIF=36.53
+  [VIF] Round 146: removing 'mean_shopping_net_6m'  VIF=35.95
+  [VIF] Round 147: removing 'trend_count_grocery_net'  VIF=35.36
+  [VIF] Round 148: removing 'sum_misc_net_12m'  VIF=35.29
+  [VIF] Round 149: removing 'days_since_last'  VIF=34.86
+  [VIF] Round 150: removing 'sum_shopping_net_12m'  VIF=34.32
+  [VIF] Round 151: removing 'pct_sum_health_fitness_all'  VIF=33.92
+  [VIF] Round 152: removing 'mean_travel_6m'  VIF=33.72
+  [VIF] Round 153: removing 'median_amt_3m'  VIF=33.22
+  [VIF] Round 154: removing 'pct_sum_food_dining_all'  VIF=32.65
+  [VIF] Round 155: removing 'pct_count_gas_transport_12m'  VIF=32.26
+  [VIF] Round 156: removing 'count_travel_all'  VIF=31.69
+  [VIF] Round 157: removing 'pct_sum_health_fitness_6m'  VIF=31.53
+  [VIF] Round 158: removing 'count_misc_pos_6m'  VIF=31.37
+  [VIF] Round 159: removing 'mean_misc_net_6m'  VIF=30.84
+  [VIF] Round 160: removing 'max_amt_6m'  VIF=30.51
+  [VIF] Round 161: removing 'sum_shopping_pos_12m'  VIF=30.34
+  [VIF] Round 162: removing 'pct_midday_6m'  VIF=28.81
+  [VIF] Round 163: removing 'std_amt_all'  VIF=28.41
+  [VIF] Round 164: removing 'count_shopping_net_6m'  VIF=27.77
+  [VIF] Round 165: removing 'sum_entertainment_6m'  VIF=27.26
+  [VIF] Round 166: removing 'trend_count_kids_pets'  VIF=27.14
+  [VIF] Round 167: removing 'mean_misc_pos_all'  VIF=26.04
+  [VIF] Round 168: removing 'sum_home_6m'  VIF=25.59
+  [VIF] Round 169: removing 'count_misc_net_6m'  VIF=25.01
+  [VIF] Round 170: removing 'sum_kids_pets_6m'  VIF=24.36
+  [VIF] Round 171: removing 'pct_count_home_all'  VIF=23.99
+  [VIF] Round 172: removing 'pct_count_travel_12m'  VIF=23.81
+  [VIF] Round 173: removing 'pct_sum_grocery_net_all'  VIF=23.71
+  [VIF] Round 174: removing 'pct_sum_gas_transport_6m'  VIF=22.09
+  [VIF] Round 175: removing 'pct_sum_food_dining_6m'  VIF=21.47
+  [VIF] Round 176: removing 'pct_count_entertainment_12m'  VIF=20.84
+  [VIF] Round 177: removing 'pct_sum_personal_care_all'  VIF=19.88
+  [VIF] Round 178: removing 'mean_kids_pets_all'  VIF=19.80
+  [VIF] Round 179: removing 'pct_count_shopping_pos_12m'  VIF=19.68
+  [VIF] Round 180: removing 'mean_misc_pos_6m'  VIF=19.46
+  [VIF] Round 181: removing 'mean_health_fitness_all'  VIF=18.70
+  [VIF] Round 182: removing 'pct_count_shopping_net_12m'  VIF=18.67
+  [VIF] Round 183: removing 'count_grocery_pos_6m'  VIF=17.50
+  [VIF] Round 184: removing 'pct_count_grocery_net_6m'  VIF=16.77
+  [VIF] Round 185: removing 'pct_count_home_6m'  VIF=16.12
+  [VIF] Round 186: removing 'sum_grocery_net_6m'  VIF=15.83
+  [VIF] Round 187: removing 'pct_sum_shopping_pos_6m'  VIF=15.52
+  [VIF] Round 188: removing 'mean_gas_transport_all'  VIF=15.05
+  [VIF] Round 189: removing 'sum_misc_net_6m'  VIF=14.89
+  [VIF] Round 190: removing 'pct_count_misc_pos_12m'  VIF=14.44
+  [VIF] Round 191: removing 'mean_grocery_pos_all'  VIF=14.28
+  [VIF] Round 192: removing 'mean_misc_net_12m'  VIF=14.04
+  [VIF] Round 193: removing 'sum_personal_care_6m'  VIF=13.98
+  [VIF] Round 194: removing 'mean_home_12m'  VIF=13.69
+  [VIF] Round 195: removing 'pct_midday_all'  VIF=13.51
+  [VIF] Round 196: removing 'streak_grocery_pos'  VIF=13.47
+  [VIF] Round 197: removing 'pct_sum_grocery_pos_6m'  VIF=13.27
+  [VIF] Round 198: removing 'sum_health_fitness_6m'  VIF=13.04
+  [VIF] Round 199: removing 'pct_count_food_dining_all'  VIF=12.58
+  [VIF] Round 200: removing 'pct_count_personal_care_6m'  VIF=12.44
+  [VIF] Warning: max_iterations (200) reached.
+  After VIF gate: 98 features  (removed 205)
+  High-correlation pairs (|r|>0.85):
+    mean_travel_12m ↔ mean_travel_all  r=0.913
+    trend_count_personal_care ↔ trend_sum_personal_care  r=0.890
+    mean_grocery_net_6m ↔ mean_grocery_net_12m  r=0.890
+    mean_food_dining_6m ↔ mean_food_dining_all  r=0.889
+    pct_count_kids_pets_6m ↔ pct_count_kids_pets_all  r=0.872
+  [FeatureSelector → Orchestrator] Requesting LLM: select best feature subset from 98 VIF-filtered candidates (pipeline)
+
+  [Orchestrator] ← FeatureSelector requests LLM help: select best feature subset from 98 VIF-filtered candidates (pipeline)
+  [Orchestrator] → FeatureSelector: LLM answered (in=2915 out=661 11.84s)
+  [Orchestrator → FeatureSelector] LLM response received (2015 chars)
+  Selected 37 features.
+  VIF removed: 205  |  Max VIF remaining: 12.30
+  Reasoning: Selected features covering distinct behavioral dimensions: spending trends by merchant category (food/dining, travel, shopping, health, entertainment, grocery, kids/pets, misc), time-of-day and day-of-week behavioral ratios (peak_hour, pct_weekend), travel engagement (streak_travel, trend_count_travel, pct_count_travel), and category share ratios (pct_count_* features) to capture merchant diversity. From high-correlation pairs, chose trend_count_personal_care OR trend_sum_personal_care — kept both as their combined score was informative but flagged; ultimately retained trend_sum_personal_care and trend_count_personal_care since r=0.890 is borderline, and kept pct_count_kids_pets_6m over _all variant. Excluded raw geographic/population aggregates (city_pop), absolute amount means where trend equivalents exist, and redundant time-window duplicates to maximize cluster separability on behavioral ratios and normalized spend patterns.
+  [Bus] ⚠ FeatureSelector (iter 5): WARNING — Scored 303 features (PCA+AE). Removed 205 via VIF gate. LLM selected 37 from 98 
+         Issue: Some features still have VIF > 12.0 (max=12.3).
+         Doubt: 7 high-correlation pairs still present after VIF gate — LLM was asked to avoid both in each pair.
+  [Orchestrator] Pre-modelling preview saved (stage=feature_selection, iter 5, 983×37)
+
+[Clusterer] Iteration 5
+  Config overrides: {'clustering_algorithm': 'kmeans', 'k_search_range': [7, 8, 9, 10, 11, 12]}
+  Algorithm: kmeans (from config)
+  [SilhouetteOptimizer] Trying k ∈ [7, 8, 9, 10, 11, 12] with algorithm=kmeans
+    k=  7  sil=0.1040  DB=2.1826  CH=182.1
+    k=  8  sil=0.1043  DB=2.0259  CH=166.6
+    k=  9  sil=0.1030  DB=1.9880  CH=154.1
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from FeatureSelector (evidence)
+    k= 10  sil=0.0966  DB=2.0825  CH=142.5
+    k= 11  sil=0.1037  DB=1.8245  CH=134.1
+    k= 12  sil=0.0750  DB=2.0718  CH=124.8
+  [SilhouetteOptimizer] WARNING: Best silhouette (0.104) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  [SilhouetteOptimizer] Best k=11  composite=0.782  sil=0.1037  DB=1.8245  CH=134.1
+  k auto-selected: 11  composite=0.782  silhouette=0.1037  DB=1.8245  CH=134.1
+  WARNING: Best silhouette (0.104) is below the quality threshold (0.2). Clusters may not be well-separated. Consider different features or a different algorithm.
+  Initial clustering: 11 clusters  |  silhouette=0.1037
+  Round 1: no oversized cluster. Deepening done.
+  Final: 11 leaf clusters  |  silhouette=0.1037
+  [Bus] ⚠ Clusterer (iter 5): WARNING — Used KMeans with k=11 (auto-selected via silhouette). Ran deepening loop → 11 le
+         Issue: Silhouette=0.104 < target 0.50 — orchestrator will reselect features (or escalate after 3 consecutive misses).
+         Doubt: Silhouette improved 0.075→0.104 across k range — marginal gain.
+  [Orchestrator] PCA snapshot saved (iter 5, 983 points)
+
+[PersonaNamer] Iteration 5  (tone: 'easy')
+  Prepared cluster prompt for 11 clusters — asking Orchestrator for naming...
+  Must-have cluster types: ['traveller']
+  [PersonaNamer] Injected 21 lines of UI feedback.
+  [PersonaNamer → Orchestrator] Requesting LLM: name and describe 11 clusters (tone='easy') (pipeline)
+
+  [Orchestrator] ← PersonaNamer requests LLM help: name and describe 11 clusters (tone='easy') (pipeline)
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Clusterer (evidence)
+  [Orchestrator → EvidenceExplainer] LLM response received (597 chars)
+127.0.0.1 - - [06/Jun/2026 21:36:00] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator → EvidenceExplainer] LLM response received (730 chars)
+127.0.0.1 - - [06/Jun/2026 21:36:01] "POST /api/explain HTTP/1.1" 200 -
+  [Orchestrator] → PersonaNamer: LLM answered (in=8148 out=3050 55.33s)
+  [Orchestrator → PersonaNamer] LLM response received (10707 chars)
+  Cluster 0  [depth 0]: "Grocery & Shopping Power Spenders"  conf=8/10
+  Cluster 1  [depth 0]: "Rare but Lavish Big-Ticket Shoppers"  conf=7/10
+  Cluster 2  [depth 0]: "Elite Shopping-Only Micro Cluster"  conf=6/10
+  Cluster 3  [depth 0]: "Long-Gone High-Ticket Shoppers (Urban)"  conf=7/10
+  Cluster 4  [depth 0]: "Dormant Metro Big-Basket Buyers"  conf=7/10
+  Cluster 5  [depth 0]: "Fully Churned Former Shoppers & Misc Spenders"  conf=7/10
+  Cluster 6  [depth 0]: "Family Food & Kids Daily Shoppers"  conf=8/10
+  Cluster 7  [depth 0]: "Rural Frequent Fuel & Transport Users"  conf=8/10
+  Cluster 8  [depth 0]: "Recent Mega-Transaction Shoppers"  conf=7/10
+  Cluster 9  [depth 0]: "Male Frequent Travellers"  conf=9/10
+  Cluster 10  [depth 0]: "Shopping-Dominated Moderate-Frequency Buyers"  conf=6/10
+  Clarity Gate PASSED  (avg_conf=7.3, unique=True)
+  [Bus] ✓ PersonaNamer (iter 5): SUCCESS — Named 11 clusters using LLM (tone='easy'). Clarity Gate PASSED. Avg confidence=7
+
+[Classifier] Iteration 5
+  Entities: 983  |  Personas (classes): 11
+  Class distribution:
+    Grocery & Shopping Power Spenders              267 (27.2%)
+    Rural Frequent Fuel & Transport Users          228 (23.2%)
+    Male Frequent Travellers                       218 (22.2%)
+    Family Food & Kids Daily Shoppers              195 (19.8%)
+    Fully Churned Former Shoppers & Misc Spenders   19 (1.9%)
+    Dormant Metro Big-Basket Buyers                 13 (1.3%)
+    Rare but Lavish Big-Ticket Shoppers             12 (1.2%)
+    Long-Gone High-Ticket Shoppers (Urban)           9 (0.9%)
+    Recent Mega-Transaction Shoppers                 9 (0.9%)
+    Shopping-Dominated Moderate-Frequency Buyers     7 (0.7%)
+    Elite Shopping-Only Micro Cluster                6 (0.6%)
+  [Classifier → Orchestrator] Requesting LLM: select classifier model based on dataset characteristics (pipeline)
+
+  [Orchestrator] ← Classifier requests LLM help: select classifier model based on dataset characteristics (pipeline)
+  [Orchestrator] → Classifier: LLM answered (in=1178 out=106 3.12s)
+  [Orchestrator → Classifier] LLM response received (379 chars)
+  [Classifier] LLM selected model: xgboost  (With 11 classes and a previous random_forest F1 of 0.850, XGBoost is a strong next choice as it often outperforms random forests on tabular data with many classes and handles class imbalance well. The dataset size (983 samples, 303 features) is well within XGBoost's effective range, making it a natural upgrade to potentially push F1 higher.)
+  Using classifier: xgboost
+  Running 5-fold stratified CV ...
+  CV accuracy    : 0.9583
+  CV F1 (macro)  : 0.9043  (threshold ≥ 0.7)
+  CV F1 (weighted): 0.9580
+  Per-class F1:
+    Shopping-Dominated Moderate-Frequency Buyers  0.727  ██████████████
+    Rare but Lavish Big-Ticket Shoppers           0.833  ████████████████
+    Long-Gone High-Ticket Shoppers (Urban)        0.889  █████████████████
+    Recent Mega-Transaction Shoppers              0.889  █████████████████
+    Dormant Metro Big-Basket Buyers               0.897  █████████████████
+    Elite Shopping-Only Micro Cluster             0.909  ██████████████████
+    Fully Churned Former Shoppers & Misc Spenders 0.947  ██████████████████
+    Rural Frequent Fuel & Transport Users         0.958  ███████████████████
+    Family Food & Kids Daily Shoppers             0.959  ███████████████████
+    Grocery & Shopping Power Spenders             0.968  ███████████████████
+    Male Frequent Travellers                      0.971  ███████████████████
+  Top 10 features: ['mean_grocery_net_all', 'pct_count_personal_care_all', 'sum_shopping_net_6m', 'pct_count_misc_pos_all', 'pct_midday_all', 'pct_morning_6m', 'count_grocery_net_all', 'mean_misc_net_12m', 'count_home_6m', 'median_amt_6m']
+  Performance OK — proceeding.
+  [Bus] ✓ Classifier (iter 5): SUCCESS — Trained xgboost, 5-fold stratified CV. CV macro-F1=0.904 ≥ 0.7 threshold.
+         Doubt: Lowest-F1 personas: Shopping-Dominated Moderate-Frequency Buyers(0.73), Rare but Lavish Big-Ticket Shoppers(0.83), Long-Gone High-Ticket Shoppers (Urban)(0.89)
+  [Orchestrator] iter 5 is new BEST (F1=0.904, Sil=0.104, maxVIF=12.30, score=88.09)
+
+[Orchestrator] Silhouette 0.104 < target 0.50 (re-engineer counter 3/3 · relax counter 3/3).
+  [Orchestrator] BYPASS — auto-lowering silhouette_target 0.50 → 0.40
+  [Bus] ⚠ Orchestrator (iter 5): WARNING — Silhouette target relaxed 0.50 → 0.40 (bypass mode) after 3 consecutive iteratio
+         Issue: ⚠ silhouette_target degraded 0.50→0.40 (step #1, bypass)
+         Doubt: Lower target accepts weaker cluster separation — interpretability of the resulting personas may drop.
+
+=================================================================
+PIPELINE TIMING SUMMARY
+=================================================================
+Agent                   Calls     Total    Per call  % of total
+-----------------------------------------------------------------
+(0) UserInput               1     57.2s      57.2s        1.3%
+(1) DatasetExaminer         1     21.7s      21.7s        0.5%
+(2) FeatureEngineer         1     39.6s      39.6s        0.9%
+(3) FeatureSelector         5   3890.1s     778.0s       86.7%
+(4) Clusterer               5    138.6s      27.7s        3.1%
+(5) PersonaNamer            3    145.2s      48.4s        3.2%
+(6) Classifier              3    156.7s      52.2s        3.5%
+-----------------------------------------------------------------
+TOTAL                           4487.1s
+=================================================================
+
+[Orchestrator] Max iterations (5) reached.
+  Best approved result: avg_confidence=7.3  cv_f1=0.904
+  Saving best result...
+  Saved outputs/cluster_profiles.json
+  Saved outputs/cluster_lineage.json
+  Saved outputs/personas.json
+  Saved outputs/cluster_labels.csv
+  Saved outputs/classifier_metrics.json
+  Saved outputs/silhouette_curve.json
+  [Bus] Pipeline log saved → outputs/pipeline_log.json  (20 status messages, 22 LLM queries)
+  [Bus] Agents conversation log saved → outputs/agents_conversation.txt
+  [Orchestrator] 🧠 Saved case to memory (case_id=b50d519e…, status=max_iterations_reached, algo=KMeans, k=11, F1=0.9042715113952088).
+
+
+████████████████████████████████████████████████████████████████████████
+  MULTI-AGENT PERSONA DISCOVERY — FINAL REPORT
+████████████████████████████████████████████████████████████████████████
+
+════════════════════════════════════════════════════════════════════════
+  HOW THE AGENTS INTERACT
+════════════════════════════════════════════════════════════════════════
+
+  Four specialised agents + one Orchestrator form a feedback loop.
+  Every agent's quality gate can push the pipeline backward; it only
+  moves forward when ALL gates pass (or the user approves manually).
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                        ORCHESTRATOR                             │
+  │  (Python coordinator + LLM decision-maker)                      │
+  │                                                                 │
+  │  ① FeatureSelector ──────────────────────────────────────────► │
+  │    Role: LLM reads PCA + AE importance scores and               │
+  │    decides which features maximise persona separability.        │
+  │    Output: selected_features list (~30–60 features)             │
+  │         │                                                       │
+  │         ▼   ◄── loops here if ② or ④ request reselection      │
+  │  ② Clusterer ────────────────────────────────────────────────► │
+  │    Role: sklearn fits clusters; if a cluster > 40%   │
+  │    LLM decides: sub-cluster in-place OR reselect features.     │
+  │    Output: leaf cluster labels + profiles + lineage tree        │
+  │         │                                                       │
+  │         ▼   ◄── loops here if ③ Clarity Gate fails or ④ says  │
+  │  ③ PersonaNamer ─────────────────────────────────────────────► │
+  │    Role: LLM writes name/tagline/description/traits for         │
+  │    every cluster in one structured prompt (siblings grouped     │
+  │    together so names must contrast).                            │
+  │    Clarity Gate: sil ≥ 0.15 · avg_conf ≥ 6.0 · unique names   │
+  │    Output: personas dict                                        │
+  │         │                                                       │
+  │         ▼   ◄── loops here if LLM diagnoses poor clusters      │
+  │  ④ Classifier ───────────────────────────────────────────────► │
+  │    Role: classifier CV validates crispness; if macro-F1         │
+  │    < 0.70 LLM diagnoses root cause → route to ① or ②.         │
+  │    Output: CV metrics + per-class F1 + feature importances      │
+  │         │                                                       │
+  │         ▼                                                       │
+  │  ⑤ Human Checkpoint (persona table + CV-F1 + metric proof)    │
+  │    Approve → save all outputs.  Otherwise loop back.           │
+  └─────────────────────────────────────────────────────────────────┘
+
+  HOW PERSONAS ARE LABELLED
+  ─────────────────────────
+  ② Clusterer groups the 983 customers into k leaf segments by
+    behavioural distance in feature space.
+
+  ③ PersonaNamer builds a structured feature summary (top above-average
+    and below-average features, relative ratios vs dataset average)
+    for every cluster and sends it to the LLM.  The LLM reads the
+    numbers and writes a name, tagline, description, and traits
+    that are GROUNDED IN THOSE SPECIFIC METRICS — not invented.
+    Sub-clusters are shown alongside their siblings so each name
+    must explain HOW this group differs from its neighbours.
+
+  ④ Classifier proves the labelling is correct: it trains a
+    classifier to predict cluster membership from the same features.
+    Near-perfect CV-F1 means the clusters are genuinely crisp in
+    feature space — the personas are real segments.
+
+  40% GUARD  (config: max_cluster_size_pct=40%, sub_n_clusters=3, max_depth=2)
+  ─────────────────────────────────────────────────────────────────
+  After initial clustering, any cluster holding > 40% of entities
+  is automatically split into 3 sub-clusters.  The LLM is consulted
+  if the split decision is ambiguous.  The Cluster Size table below
+  proves all final clusters respect the limit.
+
+
+════════════════════════════════════════════════════════════════════════
+  CLUSTER SIZE CHECK  (40% guard)
+════════════════════════════════════════════════════════════════════════
+
+  Threshold   : > 40% triggers automatic split
+  Total cust  : 983
+
+  C    Persona                                            N     Pct  Status        Distribution
+  ────────────────────────────────────────────────────────────────────────────────
+  C0   Grocery & Shopping Power Spenders                267  27.2%  ✓ OK          ██████████
+  C1   Rare but Lavish Big-Ticket Shoppers               12   1.2%  ✓ OK          █
+  C2   Elite Shopping-Only Micro Cluster                  6   0.6%  ✓ OK          █
+  C3   Long-Gone High-Ticket Shoppers (Urban)             9   0.9%  ✓ OK          █
+  C4   Dormant Metro Big-Basket Buyers                   13   1.3%  ✓ OK          █
+  C5   Fully Churned Former Shoppers & Misc Spenders     19   1.9%  ✓ OK          █
+  C6   Family Food & Kids Daily Shoppers                195  19.8%  ✓ OK          ███████
+  C7   Rural Frequent Fuel & Transport Users            228  23.2%  ✓ OK          █████████
+  C8   Recent Mega-Transaction Shoppers                   9   0.9%  ✓ OK          █
+  C9   Male Frequent Travellers                         218  22.2%  ✓ OK          ████████
+  C10  Shopping-Dominated Moderate-Frequency Buyers       7   0.7%  ✓ OK          █
+
+  ✓  All clusters within limit. Deepening loop enforced correctly.
+
+════════════════════════════════════════════════════════════════════════
+  PERSONA SUMMARY  (notebook-04 format + supporting metrics)
+════════════════════════════════════════════════════════════════════════
+=================================================================
+PERSONA SUMMARY
+=================================================================
+  11 personas  |  983 customers  |  silhouette=n/a  |  CV F1 (macro)=n/a
+=================================================================
+-----------------------------------------------------------------
+
+Cluster 0  (267 entities, 27.2% of total)
+  Persona  : Grocery & Shopping Power Spenders
+  Tagline  : They fill the cart — every single week
+  Dominant : []
+  Traits:
+    • Buys groceries ~1.84x more than the typical person
+    • Shops for general merchandise at 1.66x the average rate
+    • Predominantly female (only 2% male)
+    • Shops almost every day — barely any gap since last purchase
+    • Barely spends on travel (less than half the average travel share)
+
+  Description:
+    These 267 people buy groceries nearly twice as often as the average
+    person and spend heavily on shopping too. They were active just
+    yesterday (days_since_last ≈ 0.15), meaning they shop constantly.
+    Almost all of them are female, and they show very little interest in
+    travel.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀  sum_grocery_net_12m                        1.84x          3252
+  ◀  sum_grocery_net_all                        1.84x          4556
+  ◀  count_grocery_net_12m                      1.83x         60.26
+  ◀  count_grocery_net_all                      1.82x         84.36
+  ◀  sum_grocery_net_6m                         1.82x          1460
+  ◀  count_grocery_net_6m                       1.81x         27.23
+  ◀  sum_misc_pos_6m                            1.67x          2769
+  ◀  sum_shopping_pos_12m                       1.67x     1.132e+04
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ days_since_last                            0.01x        0.1461
+    ▼ gender_M                                   0.04x        0.0187
+    ▼ pct_sum_travel_12m                         0.40x        0.0166
+    ▼ pct_sum_travel_6m                          0.44x        0.0167
+    ▼ pct_sum_travel_all                         0.45x        0.0191
+-----------------------------------------------------------------
+
+Cluster 1  (12 entities, 1.2% of total)
+  Persona  : Rare but Lavish Big-Ticket Shoppers
+  Tagline  : They barely shop — but when they do, it's expensive
+  Dominant : []
+  Traits:
+    • Median transaction nearly $722 — about 10x the average
+    • Last purchase was roughly 6 months ago
+    • Average shopping transaction over $880
+    • Zero spending on food and dining in the last 6 months
+    • Extremely infrequent but very high-value purchases
+
+  Description:
+    These 12 people have the highest average transaction size in the
+    whole dataset — nearly 10x the norm — and they haven't shopped in
+    about 6 months. Their spending is concentrated in shopping and
+    miscellaneous categories, with huge individual transactions. They
+    spend nothing on food and dining.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ median_amt_12m                             9.94x         722.3
+  ◀◀ days_since_last                            8.63x         182.8
+  ◀◀ mean_shopping_pos_12m                      8.23x         883.7
+  ◀◀ median_amt_all                             8.13x         722.3
+  ◀◀ mean_shopping_net_12m                      7.77x          1006
+  ◀◀ mean_misc_net_12m                          7.65x         816.4
+  ◀◀ mean_shopping_pos_all                      7.04x         883.7
+  ◀◀ mean_amt_12m                               6.95x         659.2
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_food_dining_6m                       0.00x             0
+    ▼ sum_food_dining_6m                         0.00x             0
+    ▼ mean_food_dining_6m                        0.00x             0
+    ▼ pct_count_food_dining_6m                   0.00x             0
+    ▼ pct_sum_food_dining_6m                     0.00x             0
+-----------------------------------------------------------------
+
+Cluster 2  (6 entities, 0.6% of total)
+  Persona  : Elite Shopping-Only Micro Cluster
+  Tagline  : A tiny group with enormous shopping baskets
+  Dominant : []
+  Traits:
+    • Average shopping transaction ~$862 — 9x the norm
+    • Median transaction ~$514 in the past 6 months
+    • Shopping dominates essentially all of their spend
+    • Zero health and fitness transactions
+    • Signals strongest in the 6-month window, suggesting recent
+      activity
+
+  Description:
+    Just 6 people, but their average shopping transaction is over 9x the
+    norm. Their median spend per transaction is around $514 in the last
+    6 months — extraordinary. Like Cluster 1, they spend nothing on
+    health and fitness, but unlike Cluster 1 they are more recently
+    active and their signal is strongest in the 6-month window.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ mean_shopping_pos_6m                       9.29x         861.9
+  ◀◀ mean_shopping_net_6m                       9.09x          1014
+  ◀◀ median_amt_6m                              8.68x         513.6
+  ◀◀ mean_shopping_pos_12m                      8.02x         861.9
+  ◀◀ mean_shopping_net_12m                      7.84x          1014
+  ◀◀ median_amt_12m                             7.07x         513.6
+  ◀◀ mean_shopping_pos_all                      6.86x         861.9
+  ◀◀ mean_amt_6m                                6.81x         561.6
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_health_fitness_6m                    0.00x             0
+    ▼ sum_health_fitness_6m                      0.00x             0
+    ▼ mean_health_fitness_6m                     0.00x             0
+    ▼ pct_count_health_fitness_6m                0.00x             0
+    ▼ pct_sum_health_fitness_6m                  0.00x             0
+-----------------------------------------------------------------
+
+Cluster 3  (9 entities, 0.9% of total)
+  Persona  : Long-Gone High-Ticket Shoppers (Urban)
+  Tagline  : Once big spenders in the city — now gone quiet
+  Dominant : []
+  Traits:
+    • Inactive for over 477 days on average — extremely churned
+    • Shopping made up 48% of their total historical spend
+    • Average miscellaneous transaction ~$610 — nearly 5x the norm
+    • Based in large urban cities (~288k population average)
+    • Zero entertainment spending recently
+
+  Description:
+    These 9 people haven't transacted in over 477 days — the longest gap
+    in the dataset by far. When they were active, they spent heavily on
+    shopping and miscellaneous items in large cities. They have zero
+    entertainment spending in the last 6 months.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ days_since_last                           22.55x         477.4
+  ◀◀ mean_shopping_net_all                      5.76x           895
+  ◀◀ mean_misc_net_all                          4.83x         609.6
+  ◀◀ pct_sum_shopping_net_all                   4.04x        0.4832
+  ◀◀ mean_amt_all                               3.81x         423.3
+  ◀◀ pct_count_grocery_pos_all                  3.27x        0.3576
+  ◀◀ median_amt_all                             3.20x         284.5
+  ◀◀ pct_sum_misc_net_all                       3.02x        0.2051
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_entertainment_6m                     0.00x             0
+    ▼ sum_entertainment_6m                       0.00x             0
+    ▼ mean_entertainment_6m                      0.00x             0
+    ▼ pct_count_entertainment_6m                 0.00x             0
+    ▼ pct_sum_entertainment_6m                   0.00x             0
+-----------------------------------------------------------------
+
+Cluster 4  (13 entities, 1.3% of total)
+  Persona  : Dormant Metro Big-Basket Buyers
+  Tagline  : High spenders in big cities who've gone silent
+  Dominant : []
+  Traits:
+    • Inactive for ~254 days — about 8.5 months
+    • Lives in the largest cities in the dataset (~556k population)
+    • Median transaction ~$699 — nearly 10x the average
+    • Shopping average transaction over $900
+    • No entertainment spending at all in recent months
+
+  Description:
+    These 13 people live in very large cities (average population 556k —
+    the highest in the dataset) and once made very large purchases, but
+    they haven't transacted in about 8.5 months. Their shopping and
+    miscellaneous transaction sizes were 5-7x the average. Like Cluster
+    3, they have zero entertainment spend — but their city is much
+    larger and their inactivity is more recent.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ days_since_last                           12.01x         254.4
+  ◀◀ median_amt_12m                             9.62x         698.5
+  ◀◀ median_amt_all                             7.86x         698.5
+  ◀◀ mean_shopping_net_12m                      7.07x         914.9
+  ◀◀ mean_amt_12m                               7.02x         666.1
+  ◀◀ mean_misc_net_12m                          6.33x         675.4
+  ◀◀ mean_amt_all                               6.00x         666.1
+  ◀◀ mean_shopping_net_all                      5.89x         914.9
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_entertainment_6m                     0.00x             0
+    ▼ sum_entertainment_6m                       0.00x             0
+    ▼ mean_entertainment_6m                      0.00x             0
+    ▼ pct_count_entertainment_6m                 0.00x             0
+    ▼ pct_sum_entertainment_6m                   0.00x             0
+-----------------------------------------------------------------
+
+Cluster 5  (19 entities, 1.9% of total)
+  Persona  : Fully Churned Former Shoppers & Misc Spenders
+  Tagline  : They used to spend big on shopping — now completely inactive
+  Dominant : []
+  Traits:
+    • Inactive for ~467 days — nearly fully churned
+    • Shopping was 41% and miscellaneous 28% of all historical spend
+    • Average miscellaneous transaction ~$712 — 5.6x the norm
+    • Average shopping transaction ~$973 — nearly 8x the norm
+    • Zero entertainment spend recorded recently
+
+  Description:
+    These 19 people are the second-longest inactive group, with a gap of
+    467 days. Their historical spend was heavily skewed toward shopping
+    (41% of total) and miscellaneous categories (28%). Their average
+    transaction sizes were 5-8x the norm, but all of this is historical
+    — they show zero activity in entertainment recently.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ days_since_last                           22.04x         466.8
+  ◀◀ median_amt_all                             7.93x         704.7
+  ◀◀ mean_shopping_pos_all                      7.75x         973.1
+  ◀◀ mean_shopping_net_all                      5.73x         890.3
+  ◀◀ mean_amt_all                               5.70x         632.5
+  ◀◀ mean_misc_net_all                          5.64x         712.1
+  ◀◀ pct_sum_misc_net_all                       4.07x         0.276
+  ◀◀ pct_count_misc_net_all                     3.93x        0.2207
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_entertainment_6m                     0.00x             0
+    ▼ sum_entertainment_6m                       0.00x             0
+    ▼ mean_entertainment_6m                      0.00x             0
+    ▼ pct_count_entertainment_6m                 0.00x             0
+    ▼ pct_sum_entertainment_6m                   0.00x             0
+-----------------------------------------------------------------
+
+Cluster 6  (195 entities, 19.8% of total)
+  Persona  : Family Food & Kids Daily Shoppers
+  Tagline  : They eat out, feed the kids, and shop in the city
+  Dominant : []
+  Traits:
+    • Food and dining is 8.8% of spend — nearly twice the average share
+    • Kids and pets spending is 11% of budget — 1.6x the norm
+    • Lives in mid-sized cities (~175k population)
+    • Grocery transaction average ~$85 — 1.6x the norm
+    • Active almost every day with near-zero days since last purchase
+
+  Description:
+    These 195 people spend a notably higher share of their budget on
+    food and dining (about 1.75x average) and kids & pets (about 1.6x
+    average). They live in moderately sized cities and visit grocery
+    stores more often than average. They are very recently active —
+    practically shopping every day.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀  pct_sum_food_dining_6m                     1.77x        0.0885
+  ◀  city_pop                                   1.76x     1.755e+05
+  ◀  pct_sum_food_dining_12m                    1.76x        0.0879
+  ◀  pct_sum_food_dining_all                    1.75x        0.0878
+  ◀  mean_grocery_net_6m                        1.61x         84.63
+  ◀  mean_grocery_net_all                       1.60x         85.97
+  ◀  mean_grocery_net_12m                       1.60x         85.78
+  ◀  pct_sum_kids_pets_all                      1.59x        0.1116
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ days_since_last                            0.01x        0.2718
+    ▼ peak_hour_all                              0.41x         5.744
+    ▼ count_grocery_net_12m                      0.42x          13.8
+    ▼ count_grocery_net_all                      0.42x         19.43
+    ▼ count_grocery_net_6m                       0.42x          6.38
+-----------------------------------------------------------------
+
+Cluster 7  (228 entities, 23.2% of total)
+  Persona  : Rural Frequent Fuel & Transport Users
+  Tagline  : They drive a lot and live far from the city
+  Dominant : []
+  Traits:
+    • Gas and transport is 13-14% of their spend — 1.4x the average
+      share
+    • Lives in tiny towns with only ~7,500 people on average
+    • Gas transactions over 178 times historically — very frequent
+    • Grocery spending only 27% of the average — they don't shop much
+      locally
+    • Active almost every day — high transaction frequency overall
+
+  Description:
+    These 228 people spend a significantly higher share of their budget
+    on gas and transport (about 1.4x the average) and transact very
+    frequently in that category. They live in very small towns (average
+    city population only 7,500 — the smallest in the dataset), which
+    explains the high driving dependency. Their grocery spending is well
+    below average.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀  pct_count_gas_transport_6m                 1.45x        0.1375
+  ◀  pct_sum_gas_transport_6m                   1.43x         0.133
+  ◀  pct_count_gas_transport_12m                1.42x        0.1385
+  ◀  pct_sum_gas_transport_all                  1.41x        0.1306
+  ◀  pct_sum_gas_transport_12m                  1.40x        0.1298
+  ◀  pct_count_gas_transport_all                1.38x        0.1391
+  ◀  count_gas_transport_all                    1.34x         178.9
+  ◀  count_gas_transport_12m                    1.33x         127.4
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ days_since_last                            0.01x        0.1316
+    ▼ city_pop                                   0.08x          7513
+    ▼ sum_grocery_net_all                        0.27x         663.6
+    ▼ sum_grocery_net_6m                         0.27x         217.5
+    ▼ sum_grocery_net_12m                        0.27x         481.1
+-----------------------------------------------------------------
+
+Cluster 8  (9 entities, 0.9% of total)
+  Persona  : Recent Mega-Transaction Shoppers
+  Tagline  : Every purchase they make is enormous
+  Dominant : []
+  Traits:
+    • Median 6-month transaction ~$698 — nearly 12x the average
+    • Average shopping transaction ~$900 in the last 6 months
+    • Signals are strongest in 3-month and 6-month windows — recently
+      active
+    • Miscellaneous spend average ~$703 — over 7x the norm
+    • Zero health and fitness transactions at all
+
+  Description:
+    These 9 people have the highest median transaction size in the
+    recent 6-month window — nearly $698, or about 12x the average.
+    Unlike Clusters 1 and 3, their signals are strongest in the short-
+    term (3m and 6m), suggesting they are still active but simply buy
+    very expensive items. They do zero health and fitness spending.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ median_amt_6m                             11.80x         698.2
+  ◀◀ median_amt_12m                             9.53x         692.3
+  ◀◀ median_amt_3m                              8.90x         475.2
+  ◀◀ mean_amt_6m                                8.13x         670.9
+  ◀◀ mean_shopping_net_6m                       8.06x         899.6
+  ◀◀ median_amt_all                             7.79x         692.3
+  ◀◀ mean_misc_net_12m                          7.41x         790.8
+  ◀◀ mean_misc_net_6m                           7.36x         703.2
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_health_fitness_6m                    0.00x             0
+    ▼ sum_health_fitness_6m                      0.00x             0
+    ▼ mean_health_fitness_6m                     0.00x             0
+    ▼ pct_count_health_fitness_6m                0.00x             0
+    ▼ pct_sum_health_fitness_6m                  0.00x             0
+-----------------------------------------------------------------
+
+Cluster 9  (218 entities, 22.2% of total)
+  Persona  : Male Frequent Travellers
+  Tagline  : They're always on the move — and almost all are men
+  Dominant : []
+  Traits:
+    • Travel spend is 2.5x the average in every time window
+    • 100% male — the only cluster with a uniform gender signal
+    • Travel makes up 9% of total spend — double the average share
+    • Average individual transaction below the norm — many moderate
+      travel purchases
+    • Active almost every day — frequent and consistent spenders
+
+  Description:
+    These 218 people spend over twice the average on travel across every
+    time window — 6 months, 12 months, and all-time. Every single one of
+    them is male (gender_M = 1.0). They are active and recent shoppers,
+    but their individual transaction sizes are below average because
+    travel spending is spread across many moderate purchases rather than
+    big single events.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ sum_travel_6m                              2.54x          3639
+  ◀◀ sum_travel_all                             2.52x      1.16e+04
+  ◀◀ mean_travel_6m                             2.48x         246.2
+  ◀◀ sum_travel_12m                             2.47x          8015
+  ◀◀ mean_travel_all                            2.43x         244.7
+  ◀◀ mean_travel_12m                            2.41x         241.7
+  ◀◀ pct_sum_travel_6m                          2.39x        0.0899
+  ◀◀ pct_sum_travel_all                         2.24x        0.0947
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ days_since_last                            0.01x        0.1147
+    ▼ median_amt_all                             0.61x         54.58
+    ▼ mean_grocery_pos_all                       0.64x         81.59
+    ▼ mean_shopping_net_all                      0.66x         102.7
+    ▼ mean_grocery_pos_12m                       0.68x         81.18
+-----------------------------------------------------------------
+
+Cluster 10  (7 entities, 0.7% of total)
+  Persona  : Shopping-Dominated Moderate-Frequency Buyers
+  Tagline  : Shopping is nearly everything they spend on
+  Dominant : []
+  Traits:
+    • Shopping is 49% of 6-month spend — about 5x the average share
+    • Average shopping transaction ~$860 — nearly 8x the norm
+    • Signals strongest in the 3-month window — very recent behaviour
+    • Median 3-month transaction ~$394 — high but below the extreme
+      outlier clusters
+    • Zero health and fitness spending recorded
+
+  Description:
+    These 7 people spend almost half their entire budget on shopping
+    (49% of 6-month spend vs. the average 10%), with average shopping
+    transactions around $860 — 7-8x the norm. Unlike Cluster 2 and
+    Cluster 8, their signals are most prominent in the very short term
+    (3-month window), and their transaction median is lower than those
+    extreme outlier clusters, placing them in a distinct mid-upper tier.
+
+  Key features driving this persona:
+  ▲ Strongly above-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+  ◀◀ mean_shopping_net_6m                       7.70x         859.9
+  ◀◀ median_amt_3m                              7.38x         393.9
+  ◀◀ mean_shopping_net_12m                      6.64x         859.9
+  ◀◀ mean_amt_3m                                6.10x         465.8
+  ◀◀ median_amt_6m                              5.97x         353.4
+  ◀◀ mean_shopping_net_all                      5.53x         859.9
+  ◀◀ median_amt_12m                             5.23x           380
+  ◀◀ mean_amt_6m                                5.12x         422.1
+  ▼ Notably below-average features:
+    Feature                                   vs avg    mean value
+    ──────────────────────────────────────────────────────────────
+    ▼ count_health_fitness_6m                    0.00x             0
+    ▼ sum_health_fitness_6m                      0.00x             0
+    ▼ mean_health_fitness_6m                     0.00x             0
+    ▼ pct_count_health_fitness_6m                0.00x             0
+    ▼ pct_sum_health_fitness_6m                  0.00x             0
+
+=================================================================
+
+════════════════════════════════════════════════════════════════════════
+  KEY FEATURES THAT SEPARATE THE PERSONAS
+════════════════════════════════════════════════════════════════════════
+
+  Rank  Feature                                   Importance  Relative weight
+  ──────────────────────────────────────────────────────────────────
+  1     mean_grocery_net_all                       0.13197   ██████████████████████
+  2     pct_count_personal_care_all                0.08123   █████████████
+  3     sum_shopping_net_6m                        0.06640   ███████████
+  4     pct_count_misc_pos_all                     0.06516   ██████████
+  5     pct_midday_all                             0.05412   █████████
+  6     pct_morning_6m                             0.04328   ███████
+  7     count_grocery_net_all                      0.04267   ███████
+  8     mean_misc_net_12m                          0.03066   █████
+  9     count_home_6m                              0.02933   ████
+  10    median_amt_6m                              0.02900   ████
+  11    mean_health_fitness_6m                     0.02592   ████
+  12    mean_grocery_pos_12m                       0.02127   ███
+  13    pct_morning_all                            0.01858   ███
+  14    gender_M                                   0.01721   ██
+  15    trend_count_grocery_pos                    0.01640   ██
+
+════════════════════════════════════════════════════════════════════════
+  LLM AGENT USAGE  (role: orchestrator + python-script agent)
+════════════════════════════════════════════════════════════════════════
+
+  Every LLM call serves as an autonomous decision-maker embedded
+  inside a Python agent.  The Orchestrator coordinates these calls;
+  each call is one "reasoning task" within the pipeline.
+
+  Agent                   Role                            Calls    In tok   Out tok   API time
+  ────────────────────────────────────────────────────────────────────────────────────────
+  ⚙ Orchestrator          Parameter tuning between iterations      5    15,386     1,107      30.4s
+                                                          call 1: in=1,078 out=195 time=4.92s
+                                                          call 2: in=3,248 out=195 time=5.85s
+                                                          call 3: in=3,435 out=241 time=7.19s
+                                                          call 4: in=3,796 out=232 time=6.14s
+                                                          call 5: in=3,829 out=244 time=6.26s
+  ① FeatureSelector       Feature-subset decision             5    14,328     3,611      61.3s
+                                                          call 1: in=2,763 out=710 time=12.12s
+                                                          call 2: in=2,834 out=809 time=15.22s
+                                                          call 3: in=2,929 out=701 time=10.98s
+                                                          call 4: in=2,887 out=730 time=11.18s
+                                                          call 5: in=2,915 out=661 time=11.84s
+  ② Clusterer             Oversized-cluster routing           3     4,308       281       8.8s
+                                                          call 1: in=1,346 out=81 time=2.65s
+                                                          call 2: in=1,430 out=94 time=2.62s
+                                                          call 3: in=1,532 out=106 time=3.55s
+  ③ PersonaNamer          Cluster naming + description        3    21,249     7,698     145.2s
+                                                          call 1: in=6,649 out=2,325 time=45.14s
+                                                          call 2: in=6,452 out=2,323 time=44.69s
+                                                          call 3: in=8,148 out=3,050 time=55.33s
+  ④ Classifier            Low-F1 root-cause routing           4     5,048       396      12.1s
+                                                          call 1: in=1,161 out=68 time=2.44s
+                                                          call 2: in=1,532 out=133 time=3.78s
+                                                          call 3: in=1,177 out=89 time=2.81s
+                                                          call 4: in=1,178 out=106 time=3.12s
+  ────────────────────────────────────────────────────────────────────────────────────────
+  TOTAL                                                      22    60,319    13,093     257.8s
+
+  Input tokens  → prompt context sent to the LLM
+  Output tokens → LLM generated responses
+  Approx cost   : ~$0.3774  (Sonnet ~$3/M in · ~$15/M out, illustrative)
+
+════════════════════════════════════════════════════════════════════════
+  AGENTS & WALL-CLOCK TIME PER AGENT
+════════════════════════════════════════════════════════════════════════
+
+  Agent                     Calls     Total   Avg/call    Share  Per-call breakdown
+  ────────────────────────────────────────────────────────────────────────────
+  ① FeatureSelector             5   3890.1s     778.0s    86.7%  [652.8s  900.9s  985.8s  713.0s  637.6s]
+  ② Clusterer                   5    138.6s      27.7s     3.1%  [11.4s  31.6s  93.8s  1.0s  0.8s]
+  ③ PersonaNamer                3    145.2s      48.4s     3.2%  [45.1s  44.7s  55.3s]
+  ④ Classifier                  3    156.7s      52.2s     3.5%  [125.5s  13.2s  18.0s]
+  ────────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+  TOTAL PIPELINE TIME
+════════════════════════════════════════════════════════════════════════
+
+  4487.2 seconds  (74m 47s)  across 5 pipeline iteration(s)
+
+    LLM API calls  (①+③)          4035.3s   89.9%  ██████████████████████████
+    sklearn clustering  (②)        138.6s    3.1%  █
+    Random Forest CV    (④)        156.7s    3.5%  █
+    Orchestration / I/O            156.6s    3.5%  █
+
+
+████████████████████████████████████████████████████████████████████████
+  Outputs saved to outputs/
+    persona_summary.txt   — full persona cards (notebook-04 format)
+    persona_metrics.csv   — 220 rows  (11 clusters × 14 categories)
+    personas.json         — machine-readable personas
+    classifier_metrics.json — CV scores + feature importances
+    pipeline_run_*.txt     — full terminal log from this run
+    agents_conversation.txt — agent status messages + full LLM prompts/responses
+████████████████████████████████████████████████████████████████████████
+
+  The interactive UI is still running at http://127.0.0.1:5057/
+  Edit personas, regenerate names, merge clusters, or add global rules.
+  (edits + suggestions are logged to outputs/user_feedback_log.jsonl
+   and replayed to the Decision Maker on every subsequent run.)
+
+  Submit a new intent in the UI to start another run, or Ctrl-C to exit.
+  [EvidenceExplainer → Orchestrator] Requesting LLM: explain warning from Orchestrator (evidence)
+127.0.0.1 - - [06/Jun/2026 21:37:11] "GET /api/state HTTP/1.1" 200 -
+  [Orchestrator → EvidenceExplainer] LLM response received (529 chars)
+127.0.0.1 - - [06/Jun/2026 21:37:13] "POST /api/explain HTTP/1.1" 200 -
+127.0.0.1 - - [06/Jun/2026 21:39:06] "POST /api/cluster-chat HTTP/1.1" 200 -
+
+[run_pipeline] Shutting down UI. Bye!
