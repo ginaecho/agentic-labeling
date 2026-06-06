@@ -145,6 +145,7 @@ class FeatureEngineerAgent:
         output_path: str = "data/processed/engineered_features.parquet",
         iteration: int = 1,
         feedback: str = "",
+        resolved_columns: dict | None = None,
     ) -> tuple[pd.DataFrame, FeatureEngineeringResult]:
         """
         Engineer features from raw_df and return (customer_df, result).
@@ -160,6 +161,9 @@ class FeatureEngineerAgent:
         iteration : int
         feedback : str
             Orchestrator feedback from a previous round.
+        resolved_columns : dict | None
+            Optional dict with keys entity_id, timestamp, amount, category.
+            When provided, auto-detection is skipped and these columns are used.
 
         Returns
         -------
@@ -173,7 +177,31 @@ class FeatureEngineerAgent:
 
         # ── 1. Parse timestamps ────────────────────────────────────────────────
         raw_df = raw_df.copy()
-        ts_col = self._detect_timestamp_col(raw_df)
+        if resolved_columns:
+            ts_col = resolved_columns.get('timestamp')
+            customer_col = resolved_columns.get('entity_id')
+            amount_col = resolved_columns.get('amount')
+            category_col = resolved_columns.get('category')
+            # Validate that resolved columns exist in the dataframe
+            if ts_col and ts_col not in raw_df.columns:
+                ts_col = None
+            if customer_col and customer_col not in raw_df.columns:
+                customer_col = None
+            if amount_col and amount_col not in raw_df.columns:
+                amount_col = None
+            if category_col and category_col not in raw_df.columns:
+                category_col = None
+            # Entity_id is required — fallback to detection if missing
+            if not customer_col:
+                customer_col = self._detect_entity_col(raw_df, user_intent)
+            source = "resolved"
+        else:
+            ts_col = self._detect_timestamp_col(raw_df, user_intent)
+            customer_col = self._detect_entity_col(raw_df, user_intent)
+            amount_col = self._detect_amount_col(raw_df, user_intent)
+            category_col = self._detect_category_col(raw_df, user_intent)
+            source = "detected"
+
         if ts_col:
             raw_df["_ts"] = pd.to_datetime(raw_df[ts_col], errors="coerce")
             raw_df = raw_df.dropna(subset=["_ts"])
@@ -182,11 +210,8 @@ class FeatureEngineerAgent:
             raw_df["_ts"] = pd.Timestamp("2020-01-01")
 
         max_date = raw_df["_ts"].max()
-        customer_col = self._detect_entity_col(raw_df)
-        amount_col   = self._detect_amount_col(raw_df)
-        category_col = self._detect_category_col(raw_df)
 
-        print(f"  Detected  : entity='{customer_col}'  value='{amount_col}'  "
+        print(f"  {source.capitalize()}  : entity='{customer_col}'  value='{amount_col}'  "
               f"category='{category_col}'  timestamp='{ts_col}'")
         print(f"  Date range: {raw_df['_ts'].min().date()} → {max_date.date()}")
         print(f"  Entities  : {raw_df[customer_col].nunique():,}  |  "
@@ -973,56 +998,48 @@ Return ONLY a valid JSON object (no markdown, no extra text):
         role: str,
         candidates: list[str],
         required: bool = True,
+        hint_col: str | None = None,
     ) -> str | None:
         """
-        Auto-detect a column for a given role; ask the user if detection fails.
+        Resolve a column for a given role.
+
+        Resolution order:
+          1. User-supplied hint (from the intent form) if it exists in df.
+          2. Auto-detection via keyword matching.
+          3. None — never prompts in the terminal. Users should specify
+             column hints in the intent form when auto-detection fails.
 
         Parameters
         ----------
         role       : human-readable label, e.g. "entity/ID", "timestamp"
         candidates : ordered list of keywords to try (exact then substring)
-        required   : if True, keeps prompting until a valid column is given;
-                     if False, allows the user to press Enter to skip
+        required   : kept for API compatibility; no longer affects behaviour
+        hint_col   : optional user-specified column name from UserIntent
         """
+        if hint_col and hint_col in df.columns:
+            return hint_col
+
         guess = self._detect_col(df, candidates)
         if guess is not None:
             return guess
 
-        # Auto-detection failed — ask the user
-        cols = list(df.columns)
-        col_preview = ", ".join(cols[:20])
-        if len(cols) > 20:
-            col_preview += f" … ({len(cols)} total)"
+        # Detection failed — silent fallback. In bypass mode we must not block;
+        # in interactive mode the question lives on the intent form, not here.
+        return None
 
-        print(f"\n  [FeatureEngineer] Could not auto-detect the {role} column.")
-        print(f"  Available columns: {col_preview}")
-        if not required:
-            print(f"  Press Enter to skip {role} (optional).")
+    def _detect_timestamp_col(self, df: pd.DataFrame, user_intent: UserIntent | None = None) -> str | None:
+        return self._resolve_col(
+            df, "timestamp / date", [
+                "timestamp", "datetime", "date", "time", "ts",
+                "created_at", "occurred_at", "recorded_at", "updated_at",
+                "event_time", "event_date", "visit_date", "purchase_date",
+                "order_date", "trans_date", "trans_date_trans_time",
+            ],
+            required=False,
+            hint_col=None,
+        )
 
-        while True:
-            try:
-                val = input(f"  → Enter column name for {role}: ").strip()
-            except EOFError:
-                # Non-interactive mode (bypass / detached / piped). Fall back
-                # to the caller's default (None → df.columns[0] for required).
-                print(f"  [non-interactive] no input — falling back to default for {role}.")
-                return None
-            if val == "" and not required:
-                print(f"  Skipping {role}.")
-                return None
-            if val in df.columns:
-                return val
-            print(f"  Column '{val}' not found. Please choose from the list above.")
-
-    def _detect_timestamp_col(self, df: pd.DataFrame) -> str | None:
-        return self._resolve_col(df, "timestamp / date", [
-            "timestamp", "datetime", "date", "time", "ts",
-            "created_at", "occurred_at", "recorded_at", "updated_at",
-            "event_time", "event_date", "visit_date", "purchase_date",
-            "order_date", "trans_date", "trans_date_trans_time",
-        ], required=False)
-
-    def _detect_entity_col(self, df: pd.DataFrame) -> str:
+    def _detect_entity_col(self, df: pd.DataFrame, user_intent: UserIntent | None = None) -> str:
         # Prefer a real ID-like column when present. Otherwise fall back to
         # the auto-injected `_row_id` (loaded by orchestrator._load_df) so
         # each raw row is treated as one entity — better than falling back
@@ -1038,6 +1055,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                 "card_number", "cc_num",
             ],
             required=False,
+            hint_col=None,
         )
         if detected:
             return detected
@@ -1050,21 +1068,29 @@ Return ONLY a valid JSON object (no markdown, no extra text):
         print("  [FeatureEngineer] Injected `_row_id` (no ID-like column detected).")
         return "_row_id"
 
-    def _detect_amount_col(self, df: pd.DataFrame) -> str | None:
-        return self._resolve_col(df, "value / amount (the primary numeric measure per event)", [
-            "amount", "value", "price", "total", "amt",
-            "cost", "revenue", "qty", "quantity", "score",
-            "duration", "size", "weight", "measurement", "reading", "level",
-        ], required=False)
+    def _detect_amount_col(self, df: pd.DataFrame, user_intent: UserIntent | None = None) -> str | None:
+        return self._resolve_col(
+            df, "value / amount (the primary numeric measure per event)", [
+                "amount", "value", "price", "total", "amt",
+                "cost", "revenue", "qty", "quantity", "score",
+                "duration", "size", "weight", "measurement", "reading", "level",
+            ],
+            required=False,
+            hint_col=None,
+        )
 
-    def _detect_category_col(self, df: pd.DataFrame) -> str | None:
-        return self._resolve_col(df, "category / kind (the column that groups events into types)", [
-            "category", "cat", "type", "kind", "label",
-            "class", "group", "segment", "tag", "genre",
-            "department", "sector", "channel", "mode",
-            "event_type", "item_type", "product_type", "product_category",
-            "item_category", "subcategory", "transaction_type",
-        ], required=False)
+    def _detect_category_col(self, df: pd.DataFrame, user_intent: UserIntent | None = None) -> str | None:
+        return self._resolve_col(
+            df, "category / kind (the column that groups events into types)", [
+                "category", "cat", "type", "kind", "label",
+                "class", "group", "segment", "tag", "genre",
+                "department", "sector", "channel", "mode",
+                "event_type", "item_type", "product_type", "product_category",
+                "item_category", "subcategory", "transaction_type",
+            ],
+            required=False,
+            hint_col=None,
+        )
 
     # ── Default plan fallback (if LLM fails) ──────────────────────────────────
 

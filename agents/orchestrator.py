@@ -28,6 +28,7 @@ import time
 from collections import defaultdict
 
 import anthropic
+import numpy as np
 import pandas as pd
 
 from agents.state import HumanDecision, PipelineState
@@ -591,6 +592,23 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
         elif user_intent:
             state.user_intent = user_intent
 
+        if state.user_intent and getattr(state.user_intent, 'max_total_iterations', None):
+            old_max = int(max_total_iterations)
+            new_max = int(state.user_intent.max_total_iterations)
+            if new_max > 0 and new_max != old_max:
+                max_total_iterations = new_max
+                print(
+                    f'  [Orchestrator] max_total_iterations overridden by user intent: '
+                    f'{old_max} → {new_max}.'
+                )
+                self.bus.emit(
+                    'config_override_from_intent',
+                    field='max_total_iterations',
+                    old=old_max,
+                    new=new_max,
+                    source='user_intent',
+                )
+
         # ── Apply user-intent overrides to pipeline config ──────────────────
         # max_cluster_size_pct: if the user said "max cluster <X%>" in their
         # intent text, the UserInputAgent parsed it into this field; we
@@ -715,6 +733,18 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             'suggested_groups': dataset_profile.suggested_feature_groups,
             'algo_hint': dataset_profile.algo_hint,
         })
+
+        # ── Control-gate tuning (max_cluster_size_pct, sub_n_clusters, max_depth) ─
+        # The Decision Maker (bypass) or the user (interactive) sets these based
+        # on dataset stats rather than hard-coding 0.40 / 3 / 2.
+        _tuned_gates = self._tune_control_gates(
+            raw_df=raw_df if raw_df is not None else features_df,
+            dataset_profile=dataset_profile,
+            user_intent=state.user_intent,
+        )
+        self.config['max_cluster_size_pct'] = _tuned_gates['max_cluster_size_pct']
+        self.config['sub_n_clusters'] = _tuned_gates['sub_n_clusters']
+        self.config['max_depth'] = _tuned_gates['max_depth']
 
         # ── Decision-Maker case-memory recall ──────────────────────────────────
         # Look up any prior successful run whose dataset+goal matches this one
@@ -923,6 +953,14 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
         # event-level data into an entity-level feature matrix and saves
         # it to data/processed/. Downstream agents then use that parquet.
         if need_feature_engineering:
+            # Resolve entity/timestamp/amount/category columns before engineering
+            _resolved_cols = self._resolve_columns(
+                raw_df=raw_df if raw_df is not None else full_raw_df,
+                dataset_profile=dataset_profile,
+                user_intent=state.user_intent,
+            )
+            state.resolved_columns = _resolved_cols
+
             print('\n[Orchestrator] Launching FeatureEngineerAgent on raw transaction data...')
             _t0 = time.perf_counter()
             self._active_agent = 'FeatureEngineer'
@@ -937,6 +975,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                     dataset_profile=dataset_profile,
                     output_path='data/processed/engineered_features.parquet',
                     iteration=0,
+                    resolved_columns=_resolved_cols,
                 )
                 self._timings['FeatureEngineer'].append(time.perf_counter() - _t0)
                 run_history.append({
@@ -1086,6 +1125,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                         dataset_profile=state.dataset_profile,
                         output_path='data/processed/engineered_features.parquet',
                         iteration=iteration,
+                        resolved_columns=state.resolved_columns,
                     )
                     self._timings['FeatureEngineer'].append(time.perf_counter() - _t0)
                     state.needs_feature_engineering = False
@@ -1379,6 +1419,11 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             if _silhouette_missed:
                 state.consecutive_silhouette_failures += 1
                 state.silhouette_fail_for_relax += 1
+                # Pull candidate info from the clustering report if available
+                _cand = cr.metrics.get("candidate_search", {}) if cr and cr.metrics else {}
+                _cand_best = _cand.get("best") if isinstance(_cand, dict) else None
+                _cand_all = _cand.get("candidates", []) if isinstance(_cand, dict) else []
+                _algos = sorted(set(c["algorithm"] for c in _cand_all))
                 print(f'\n[Orchestrator] Silhouette {_sil:.3f} < target {_target_now:.2f} '
                       f'(re-engineer counter {state.consecutive_silhouette_failures}/{max_reselect_failures} · '
                       f'relax counter {state.silhouette_fail_for_relax}/{max_relax_failures}).')
@@ -1390,6 +1435,9 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                     max_failures=max_reselect_failures,
                     relax_failures=state.silhouette_fail_for_relax,
                     max_relax_failures=max_relax_failures,
+                    candidate_best=_cand_best,
+                    algorithms=_algos,
+                    n_candidates=len(_cand_all),
                 )
                 if state.silhouette_fail_for_relax >= max_relax_failures:
                     self._relax_silhouette_target(state, _target_now)
@@ -1982,6 +2030,594 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             pass
         print(f'  [INTERACTIVE MODE] Timed out — auto-lowering to {suggested:.2f}.')
         return suggested
+
+    # ── Control-gate tuning (max_cluster_size_pct, sub_n_clusters, max_depth) ──
+
+    def _tune_control_gates(
+        self,
+        raw_df: pd.DataFrame,
+        dataset_profile,
+        user_intent: UserIntent | None,
+    ) -> dict:
+        """Decide max_cluster_size_pct, sub_n_clusters, and max_depth.
+
+        Bypass mode    → LLM decides from dataset stats (transparent print-out).
+        Interactive mode → UI modal asks the user; falls back to defaults on timeout.
+
+        Returns a dict with the three keys. The orchestrator should merge this
+        into self.config before clustering.
+        """
+        import pathlib, time as _time
+
+        # Gather lightweight dataset stats for the prompt / UI
+        n_rows = len(raw_df)
+        n_features = len(raw_df.columns)
+        modality = getattr(dataset_profile, 'modality', 'tabular') if dataset_profile else 'tabular'
+        purpose = (user_intent.business_purpose if user_intent else '') or ''
+        target = (user_intent.target_entity if user_intent else 'entities') or 'entities'
+
+        # Quick skewness read
+        numeric = raw_df.select_dtypes(include=[np.number])
+        mean_skew = 0.0
+        if not numeric.empty:
+            try:
+                mean_skew = float(numeric.skew().abs().mean())
+            except Exception:
+                pass
+
+        # Quick PCA — just first 2 components' explained variance
+        pca_ev = []
+        if not numeric.empty and len(numeric.columns) >= 2:
+            try:
+                from sklearn.decomposition import PCA
+                from sklearn.preprocessing import StandardScaler
+                X_num = numeric.dropna().to_numpy(dtype=float)
+                if len(X_num) > 2:
+                    X_s = StandardScaler().fit_transform(X_num)
+                    pca = PCA(n_components=min(2, X_s.shape[1]))
+                    pca.fit(X_s)
+                    pca_ev = [round(float(v), 4) for v in pca.explained_variance_ratio_]
+            except Exception:
+                pass
+
+        # ── Data-driven defaults (ignore config.yaml — the Decision Maker decides) ─
+        if n_rows < 1_000 or modality == 'text':
+            _dd_max_pct = 0.55
+            _dd_sub_k = 2
+            _dd_depth = 1
+        elif n_rows < 50_000:
+            _dd_max_pct = 0.40
+            _dd_sub_k = 3
+            _dd_depth = 2
+        else:
+            _dd_max_pct = 0.30
+            _dd_sub_k = 3
+            _dd_depth = 2
+
+        if mean_skew > 2.0:
+            _dd_max_pct = max(0.25, _dd_max_pct - 0.10)
+            _dd_depth = min(3, _dd_depth + 1)
+
+        # Honor explicit user-intent overrides (e.g. "max cluster size 25%" in text)
+        _user_max_pct = (
+            float(user_intent.max_cluster_size_pct)
+            if user_intent and user_intent.max_cluster_size_pct is not None
+            else None
+        )
+
+        defaults = {
+            'max_cluster_size_pct': _user_max_pct if _user_max_pct is not None else _dd_max_pct,
+            'sub_n_clusters': _dd_sub_k,
+            'max_depth': _dd_depth,
+        }
+
+        print(
+            f"\n[Orchestrator] Control-gate data-driven defaults:\n"
+            f"  max_cluster_size_pct = {defaults['max_cluster_size_pct']:.0%}\n"
+            f"  sub_n_clusters       = {defaults['sub_n_clusters']}\n"
+            f"  max_depth            = {defaults['max_depth']}"
+            f"{'  (user override)' if _user_max_pct is not None else ''}"
+        )
+
+        from skills.orchestrator_bus import read_pipeline_mode
+        mode = read_pipeline_mode()
+
+        # ── BYPASS MODE: ask the LLM Decision Maker ─────────────────────────────
+        if mode == 'bypass':
+            prompt = f"""You are tuning three control-gate parameters for a clustering pipeline.
+
+Dataset snapshot:
+  target_entity      : {target}
+  business_purpose   : {purpose}
+  modality           : {modality}
+  n_rows             : {n_rows:,}
+  n_features         : {n_features}
+  mean_abs_skewness  : {mean_skew:.2f}
+  PCA EV (1st 2)     : {pca_ev if pca_ev else 'N/A'}
+
+{_user_max_pct is not None and f"NOTE: user explicitly requested max_cluster_size_pct = {_user_max_pct:.0%} in their intent. Respect this exact value." or ""}
+
+Data-driven starting point (from dataset stats — you may adjust):
+  max_cluster_size_pct = {defaults['max_cluster_size_pct']:.0%}
+  sub_n_clusters       = {defaults['sub_n_clusters']}
+  max_depth            = {defaults['max_depth']}
+
+Data-science guidelines:
+  max_cluster_size_pct:
+    - Small datasets (< 1k) or text topics  → 0.50–0.60 (tight splitting is risky)
+    - Medium (1k–50k) tabular               → 0.35–0.45
+    - Large (> 50k) tabular                 → 0.25–0.35
+    - Highly skewed features                → 0.25–0.30 (natural groups are uneven)
+  sub_n_clusters:
+    - Small datasets                        → 2 (conservative)
+    - Medium                                → 2–3
+    - Large or many expected personas       → 3–4
+  max_depth:
+    - Small datasets                        → 1 (avoid over-splitting)
+    - Medium                                → 2
+    - Large or hierarchical purpose         → 2–3
+
+Return ONLY a JSON object (no markdown, no prose):
+{{
+  "max_cluster_size_pct": <float 0.15–0.80>,
+  "sub_n_clusters": <int 2–6>,
+  "max_depth": <int 1–4>,
+  "reasoning": "<1 sentence per parameter>"
+}}"""
+            try:
+                raw = self.bus.ask(
+                    agent='Orchestrator',
+                    purpose='tune control gates from dataset stats (bypass mode)',
+                    prompt=prompt,
+                    max_tokens=256,
+                    category='pipeline',
+                ).strip()
+                if '```' in raw:
+                    for part in raw.split('```'):
+                        p = part.strip()
+                        if p.startswith('json'):
+                            p = p[4:].strip()
+                        if p.startswith('{'):
+                            raw = p
+                            break
+                parsed = json.loads(raw)
+                result = {
+                    'max_cluster_size_pct': float(parsed.get('max_cluster_size_pct', defaults['max_cluster_size_pct'])),
+                    'sub_n_clusters': int(parsed.get('sub_n_clusters', defaults['sub_n_clusters'])),
+                    'max_depth': int(parsed.get('max_depth', defaults['max_depth'])),
+                }
+                # Clamp to sane ranges
+                result['max_cluster_size_pct'] = max(0.15, min(0.80, result['max_cluster_size_pct']))
+                result['sub_n_clusters'] = max(2, min(6, result['sub_n_clusters']))
+                result['max_depth'] = max(1, min(4, result['max_depth']))
+
+                print(
+                    f"\n[Orchestrator] Control gates tuned by Decision Maker (bypass):\n"
+                    f"  max_cluster_size_pct = {result['max_cluster_size_pct']:.0%}\n"
+                    f"  sub_n_clusters       = {result['sub_n_clusters']}\n"
+                    f"  max_depth            = {result['max_depth']}\n"
+                    f"  Reasoning: {parsed.get('reasoning', 'N/A')}"
+                )
+                self.bus.emit(
+                    'control_gates_tuned',
+                    mode='bypass',
+                    source='llm',
+                    **result,
+                    reasoning=parsed.get('reasoning', ''),
+                )
+                return result
+            except Exception as exc:
+                print(f'  [Orchestrator] Control-gate tuning failed ({exc}) — using data-driven defaults.')
+                self.bus.emit('control_gates_tuned', mode='bypass', source='data_driven_default', **defaults)
+                return defaults
+
+        # ── INTERACTIVE MODE: ask the user via UI modal ─────────────────────────
+        pending = pathlib.Path('outputs/pending_control_gates.json')
+        try:
+            pending.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        self.bus.emit(
+            'awaiting_control_gates',
+            defaults=defaults,
+            dataset_stats={
+                'n_rows': n_rows,
+                'n_features': n_features,
+                'modality': modality,
+                'mean_abs_skewness': round(mean_skew, 2),
+                'pca_ev': pca_ev,
+                'target_entity': target,
+                'business_purpose': purpose,
+            },
+            timeout_s=300,
+        )
+        print(
+            f'\n  [INTERACTIVE MODE] Control-gate tuning — pipeline paused.\n'
+            f'  Please set max_cluster_size_pct, sub_n_clusters, and max_depth '
+            f'in the UI modal (or wait 5 min to accept data-driven defaults).'
+        )
+
+        deadline = _time.time() + 300
+        try:
+            while _time.time() < deadline:
+                if pending.exists():
+                    try:
+                        payload = json.loads(pending.read_text(encoding='utf-8'))
+                        result = {
+                            'max_cluster_size_pct': float(
+                                payload.get('max_cluster_size_pct', defaults['max_cluster_size_pct'])
+                            ),
+                            'sub_n_clusters': int(
+                                payload.get('sub_n_clusters', defaults['sub_n_clusters'])
+                            ),
+                            'max_depth': int(
+                                payload.get('max_depth', defaults['max_depth'])
+                            ),
+                        }
+                        # Clamp
+                        result['max_cluster_size_pct'] = max(0.15, min(0.80, result['max_cluster_size_pct']))
+                        result['sub_n_clusters'] = max(2, min(6, result['sub_n_clusters']))
+                        result['max_depth'] = max(1, min(4, result['max_depth']))
+                        try:
+                            pending.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        print(
+                            f'\n[Orchestrator] Control gates set by user:\n'
+                            f"  max_cluster_size_pct = {result['max_cluster_size_pct']:.0%}\n"
+                            f"  sub_n_clusters       = {result['sub_n_clusters']}\n"
+                            f"  max_depth            = {result['max_depth']}"
+                        )
+                        self.bus.emit(
+                            'control_gates_tuned',
+                            mode='interactive',
+                            source='user',
+                            **result,
+                        )
+                        return result
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        pass
+                _time.sleep(0.6)
+        except KeyboardInterrupt:
+            pass
+        print('  [INTERACTIVE MODE] Control-gate tuning timed out — using data-driven defaults.')
+        self.bus.emit('control_gates_tuned', mode='interactive', source='data_driven_default', **defaults)
+        return defaults
+
+    # ── Column resolution (entity_id, timestamp, amount, category) ─────────────
+
+    def _resolve_columns(
+        self,
+        raw_df: pd.DataFrame,
+        dataset_profile,
+        user_intent,
+    ) -> dict:
+        """
+        Resolve entity_id, timestamp, amount, and category columns using
+        data-science heuristics.  If ambiguous:
+          - bypass mode   → ask the LLM Decision Maker to decide
+          - interactive   → pause and ask the user via UI modal
+        Returns a dict with keys: entity_id, timestamp, amount, category.
+        """
+        import time as _time
+
+        n_rows = len(raw_df)
+        results: dict[str, str | None] = {}
+        ambiguous: dict[str, list[str]] = {}
+
+        def _score_name(col: str, keywords: list[str]) -> int:
+            col_l = col.lower().replace('_', '').replace('-', '')
+            score = 0
+            for kw in keywords:
+                kw_l = kw.lower().replace('_', '').replace('-', '')
+                if kw_l == col_l:
+                    score += 100
+                elif kw_l in col_l:
+                    score += 50
+            return score
+
+        # 1. Entity ID
+        entity_candidates = []
+        for col in raw_df.columns:
+            if col.startswith('_'):
+                continue
+            nuniq = raw_df[col].nunique()
+            ratio = nuniq / max(n_rows, 1)
+            score = _score_name(col, [
+                'id', 'entityid', 'userid', 'customerid', 'clientid',
+                'accountid', 'subjectid', 'patientid', 'deviceid',
+                'sensorid', 'itemid', 'productid', 'orderid',
+                'sessionid', 'recordid', 'uuid', 'uid', 'pid',
+                'cardnumber', 'ccnum',
+            ])
+            if ratio >= 0.90:
+                score += 80
+            elif ratio >= 0.70:
+                score += 40
+            elif ratio >= 0.50:
+                score += 10
+            if pd.api.types.is_integer_dtype(raw_df[col]):
+                score += 20
+            if score > 0:
+                entity_candidates.append((col, score, ratio))
+        entity_candidates.sort(key=lambda x: (-x[1], -x[2]))
+        if entity_candidates and entity_candidates[0][1] >= 80:
+            results['entity_id'] = entity_candidates[0][0]
+        elif entity_candidates:
+            ambiguous['entity_id'] = [c[0] for c in entity_candidates[:5]]
+        else:
+            results['entity_id'] = '_row_id'
+
+        # 2. Timestamp
+        ts_candidates = []
+        for col in raw_df.columns:
+            if col.startswith('_'):
+                continue
+            score = _score_name(col, [
+                'timestamp', 'datetime', 'date', 'time', 'ts',
+                'createdat', 'occurredat', 'recordedat', 'updatedat',
+                'eventtime', 'eventdate', 'visitdate', 'purchasedate',
+                'orderdate', 'transdate', 'transdatetranstime',
+            ])
+            if pd.api.types.is_datetime64_any_dtype(raw_df[col]):
+                score += 100
+            else:
+                try:
+                    sample = raw_df[col].dropna().head(20)
+                    if len(sample) > 0:
+                        parsed = pd.to_datetime(sample, errors='coerce')
+                        if parsed.notna().sum() / len(sample) >= 0.8:
+                            score += 80
+                except Exception:
+                    pass
+            if score > 0:
+                ts_candidates.append((col, score))
+        ts_candidates.sort(key=lambda x: -x[1])
+        if ts_candidates and ts_candidates[0][1] >= 80:
+            results['timestamp'] = ts_candidates[0][0]
+        elif ts_candidates:
+            ambiguous['timestamp'] = [c[0] for c in ts_candidates[:5]]
+
+        # 3. Amount (numeric, positive, not binary, not an ID)
+        exclude_for_amount = {results.get('entity_id')}
+        amount_candidates = []
+        for col in raw_df.columns:
+            if col.startswith('_') or col in exclude_for_amount:
+                continue
+            if not pd.api.types.is_numeric_dtype(raw_df[col]):
+                continue
+            nuniq = raw_df[col].nunique()
+            ratio = nuniq / max(n_rows, 1)
+            if ratio >= 0.95:
+                continue
+            s = raw_df[col].dropna()
+            if len(s) == 0 or s.nunique() <= 2:
+                continue
+            score = _score_name(col, [
+                'amount', 'value', 'price', 'total', 'amt',
+                'cost', 'revenue', 'qty', 'quantity', 'score',
+                'duration', 'size', 'weight', 'measurement', 'reading', 'level',
+            ])
+            if s.min() >= 0:
+                score += 30
+            if s.max() > s.min() * 10:
+                score += 20
+            if score > 0:
+                amount_candidates.append((col, score))
+        amount_candidates.sort(key=lambda x: -x[1])
+        if amount_candidates and amount_candidates[0][1] >= 50:
+            results['amount'] = amount_candidates[0][0]
+        elif amount_candidates:
+            ambiguous['amount'] = [c[0] for c in amount_candidates[:5]]
+
+        # 4. Category (low-cardinality, object/categorical)
+        exclude_for_category = {results.get('entity_id'), results.get('timestamp')}
+        category_candidates = []
+        for col in raw_df.columns:
+            if col.startswith('_') or col in exclude_for_category:
+                continue
+            nuniq = raw_df[col].nunique()
+            if nuniq < 2 or nuniq > 100:
+                continue
+            score = _score_name(col, [
+                'category', 'cat', 'type', 'kind', 'label',
+                'class', 'group', 'segment', 'tag', 'genre',
+                'department', 'sector', 'channel', 'mode',
+                'eventtype', 'itemtype', 'producttype', 'productcategory',
+                'itemcategory', 'subcategory', 'transactiontype',
+            ])
+            if pd.api.types.is_categorical_dtype(raw_df[col]) or raw_df[col].dtype == object:
+                score += 30
+            if 2 <= nuniq <= 50:
+                score += 20
+            if score > 0:
+                category_candidates.append((col, score))
+        category_candidates.sort(key=lambda x: -x[1])
+        if category_candidates and category_candidates[0][1] >= 40:
+            results['category'] = category_candidates[0][0]
+        elif category_candidates:
+            ambiguous['category'] = [c[0] for c in category_candidates[:5]]
+
+        # ── No ambiguity → return immediately ──────────────────────────────────
+        if not ambiguous:
+            print(
+                f"\n[Orchestrator] Column resolution (auto-detect):\n"
+                f"  entity_id  = {results.get('entity_id', 'N/A')}\n"
+                f"  timestamp  = {results.get('timestamp', 'N/A')}\n"
+                f"  amount     = {results.get('amount', 'N/A')}\n"
+                f"  category   = {results.get('category', 'N/A')}"
+            )
+            self.bus.emit('columns_resolved', mode='auto', source='heuristics', **results)
+            return results
+
+        # ── Build schema context for LLM / user ────────────────────────────────
+        schema_lines = []
+        for col in raw_df.columns[:40]:
+            if pd.api.types.is_datetime64_any_dtype(raw_df[col]):
+                ctype = 'datetime'
+            elif pd.api.types.is_numeric_dtype(raw_df[col]):
+                ctype = 'numeric'
+            elif raw_df[col].dtype == object or pd.api.types.is_categorical_dtype(raw_df[col]):
+                ctype = 'categorical'
+            else:
+                ctype = 'other'
+            nuniq = raw_df[col].nunique()
+            example = str(raw_df[col].dropna().iloc[0]) if len(raw_df[col].dropna()) > 0 else ''
+            if len(example) > 30:
+                example = example[:30] + '...'
+            schema_lines.append(f"  {col}: {ctype}, {nuniq} unique, e.g. {example!r}")
+        schema_str = '\n'.join(schema_lines)
+
+        purpose = (user_intent.business_purpose if user_intent else '') or ''
+        target = (user_intent.target_entity if user_intent else 'entities') or 'entities'
+
+        from skills.orchestrator_bus import read_pipeline_mode
+        mode = read_pipeline_mode()
+
+        # ── BYPASS MODE: ask the LLM Decision Maker ────────────────────────────
+        if mode == 'bypass':
+            ambig_desc = []
+            for role, cands in ambiguous.items():
+                ambig_desc.append(f"{role}: candidates are {', '.join(cands)}")
+            prompt = f"""You are resolving ambiguous column roles for a clustering pipeline.
+
+Dataset target: {target}
+Business purpose: {purpose}
+
+Schema:
+{schema_str}
+
+The following column roles are ambiguous:
+{'\n'.join(ambig_desc)}
+
+For each ambiguous role, pick the BEST column from the candidates and explain why.
+If none of the candidates fit, respond with null.
+
+Return ONLY a valid JSON object (no markdown, no prose):
+{{
+  "entity_id": "<column_name or null>",
+  "timestamp": "<column_name or null>",
+  "amount": "<column_name or null>",
+  "category": "<column_name or null>",
+  "reasoning": "<1 sentence per decision>"
+}}"""
+            try:
+                raw = self.bus.ask(
+                    agent='Orchestrator',
+                    purpose='resolve ambiguous columns from schema (bypass mode)',
+                    prompt=prompt,
+                    max_tokens=512,
+                    category='pipeline',
+                ).strip()
+                if '```' in raw:
+                    for part in raw.split('```'):
+                        p = part.strip()
+                        if p.startswith('json'):
+                            p = p[4:].strip()
+                        if p.startswith('{'):
+                            raw = p
+                            break
+                parsed = json.loads(raw)
+                for key in ['entity_id', 'timestamp', 'amount', 'category']:
+                    val = parsed.get(key)
+                    if val and val in raw_df.columns:
+                        results[key] = val
+                    elif key in ambiguous:
+                        results[key] = ambiguous[key][0]
+                if 'entity_id' not in results:
+                    results['entity_id'] = '_row_id'
+                print(
+                    f"\n[Orchestrator] Column resolution (Decision Maker — bypass):\n"
+                    f"  entity_id  = {results.get('entity_id', 'N/A')}\n"
+                    f"  timestamp  = {results.get('timestamp', 'N/A')}\n"
+                    f"  amount     = {results.get('amount', 'N/A')}\n"
+                    f"  category   = {results.get('category', 'N/A')}\n"
+                    f"  Reasoning: {parsed.get('reasoning', 'N/A')}"
+                )
+                self.bus.emit(
+                    'columns_resolved',
+                    mode='bypass',
+                    source='llm',
+                    ambiguous_roles=list(ambiguous.keys()),
+                    **results,
+                    reasoning=parsed.get('reasoning', ''),
+                )
+                return results
+            except Exception as exc:
+                print(f'  [Orchestrator] Column-resolution LLM call failed ({exc}) — using heuristic fallbacks.')
+                for key, cands in ambiguous.items():
+                    results[key] = cands[0]
+                if 'entity_id' not in results:
+                    results['entity_id'] = '_row_id'
+                self.bus.emit('columns_resolved', mode='bypass', source='heuristic_fallback', **results)
+                return results
+
+        # ── INTERACTIVE MODE: ask the user via UI modal ────────────────────────
+        pending = pathlib.Path('outputs/pending_column_resolution.json')
+        try:
+            pending.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        self.bus.emit(
+            'awaiting_column_resolution',
+            ambiguous_roles=ambiguous,
+            heuristics=results,
+            schema=schema_str,
+            dataset_stats={
+                'n_rows': n_rows,
+                'n_cols': len(raw_df.columns),
+                'target_entity': target,
+                'business_purpose': purpose,
+            },
+            timeout_s=300,
+        )
+        print(
+            f'\n  [INTERACTIVE MODE] Column resolution — pipeline paused.\n'
+            f'  Ambiguous roles: {list(ambiguous.keys())}.\n'
+            f'  Please confirm or override column choices in the UI modal.'
+        )
+
+        deadline = _time.time() + 300
+        try:
+            while _time.time() < deadline:
+                if pending.exists():
+                    try:
+                        payload = json.loads(pending.read_text(encoding='utf-8'))
+                        for key in ['entity_id', 'timestamp', 'amount', 'category']:
+                            val = payload.get(key)
+                            if val and val in raw_df.columns:
+                                results[key] = val
+                            elif key in ambiguous:
+                                results[key] = ambiguous[key][0]
+                        if 'entity_id' not in results:
+                            results['entity_id'] = '_row_id'
+                        try:
+                            pending.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        print(
+                            f'\n[Orchestrator] Column resolution set by user:\n'
+                            f"  entity_id  = {results.get('entity_id', 'N/A')}\n"
+                            f"  timestamp  = {results.get('timestamp', 'N/A')}\n"
+                            f"  amount     = {results.get('amount', 'N/A')}\n"
+                            f"  category   = {results.get('category', 'N/A')}"
+                        )
+                        self.bus.emit('columns_resolved', mode='interactive', source='user', **results)
+                        return results
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                        pass
+                _time.sleep(0.6)
+        except KeyboardInterrupt:
+            pass
+        print('  [INTERACTIVE MODE] Column-resolution timed out — using heuristic fallbacks.')
+        for key, cands in ambiguous.items():
+            results[key] = cands[0]
+        if 'entity_id' not in results:
+            results['entity_id'] = '_row_id'
+        self.bus.emit('columns_resolved', mode='interactive', source='heuristic_fallback', **results)
+        return results
 
     # ── Dynamic parameter tuning ───────────────────────────────────────────────
 

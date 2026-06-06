@@ -49,28 +49,42 @@ n_clusters: ~   # null → auto-select k via silhouette optimizer (recommended)
 #   fuzzy_cmeans  — Fuzzy C-Means (partial memberships)
 clustering_algorithm: auto
 
+# AutoML-as-skill candidate tournament.
+# When clustering_algorithm/n_clusters are auto, the Clusterer evaluates a
+# bounded set of algorithm/k candidates and ranks them by:
+#   silhouette + bootstrap stability (ARI) - oversized-cluster penalty.
+# This keeps brute-force model selection in deterministic code while agents
+# handle routing, interpretation, memory, and business constraints.
+enable_automl_candidate_search: true
+candidate_search_algorithms: ~       # null → agent defaults per modality
+candidate_search_top_n: 8
+candidate_stability_repeats: 3
+candidate_stability_sample_frac: 0.80
+
 # ── Hierarchical Deepening Loop ───────────────────────────────────────────────
 #
 # After the initial clustering, any cluster whose share of total customers
 # exceeds `max_cluster_size_pct` is automatically split into `sub_n_clusters`
 # sub-clusters. This repeats for up to `max_depth` rounds.
 #
-# Rationale: a cluster containing >40% of customers is usually too broad to
-# produce a useful, specific persona. Splitting it reveals the distinct
-# sub-groups that were hiding inside.
+# IMPORTANT: these three parameters are NO LONGER fixed by config.yaml.
+# The Decision Maker (bypass mode) or the user (interactive mode) decides
+# them after examining the dataset. The values below are ONLY fallbacks
+# if that tuning step fails.
 #
-# Examples:
-#   A cluster of "moderate spenders" might split into
-#     → "Daily grocery & gas routine" (high frequency, low ticket)
-#     → "Weekend dining & entertainment" (moderate frequency, evening pattern)
-#     → "Home & kids budget manager"    (family-category focused)
+#   Bypass mode   → LLM Decision Maker picks values from dataset stats
+#                   (n_rows, skewness, modality) and prints reasoning.
+#   Interactive   → UI modal asks you to confirm / adjust before clustering.
+#
+# If you want to force a specific value, say it in your intent text
+# (e.g. "max cluster size 25%") — that override takes precedence.
 #
 # Set max_depth: 0  to disable loop splitting entirely.
 # Set max_cluster_size_pct: 1.0  to never trigger (same as max_depth: 0).
 
-max_cluster_size_pct: 0.40   # fraction — split any cluster larger than this share
-sub_n_clusters: 3            # how many sub-clusters to create when splitting
-max_depth: 2                 # max rounds of splitting (0 = disabled, 1 = one round, ...)
+max_cluster_size_pct: 0.40   # fallback ONLY — Decision Maker overrides from data
+sub_n_clusters: 3            # fallback ONLY — Decision Maker overrides from data
+max_depth: 2                 # fallback ONLY — Decision Maker overrides from data
 
 # ── Escalation rules ─────────────────────────────────────────────────────────
 # After clustering, if silhouette < `silhouette_target` the pipeline loops back

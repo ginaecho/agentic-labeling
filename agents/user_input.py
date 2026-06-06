@@ -177,6 +177,8 @@ class UserIntent:
     constraints field. The first column is repeated 2× in the merged document
     so it dominates the embedding (useful for `text_columns=title,body`
     where the user wants title-driven clusters with body as semantic context)."""
+    max_total_iterations: Optional[int] = None
+    """Maximum orchestrator iterations for this run. None means use CLI default."""
 
 
 class UserInputAgent:
@@ -312,6 +314,21 @@ class UserInputAgent:
         if must_have_clusters:
             print(f"  [UserInput] Must-have clusters: {must_have_clusters}")
 
+        # ── Q7: Max iterations ─────────────────────────────────────────────────
+        max_total_iterations: Optional[int] = None
+        max_iters_raw = _prompt_safe(
+            "7. Maximum pipeline iterations? (press Enter to use default 10)",
+            "  How many times the pipeline may loop before giving its best result.",
+            "",
+        )
+        if max_iters_raw.strip().isdigit():
+            _mi = int(max_iters_raw.strip())
+            if _mi >= 1:
+                max_total_iterations = _mi
+                print(f"  [UserInput] Max iterations set to {max_total_iterations}.")
+            else:
+                print("  [UserInput] Minimum 1 iteration required — using default.")
+
         # ── Summary ───────────────────────────────────────────────────────────
         max_pct = _parse_max_cluster_pct(business_purpose, constraints)
         intent = UserIntent(
@@ -322,6 +339,7 @@ class UserInputAgent:
             n_clusters_requested=n_clusters_requested,
             must_have_clusters=must_have_clusters,
             max_cluster_size_pct=max_pct,
+            max_total_iterations=max_total_iterations,
         )
 
         print("\n" + "─" * 65)
@@ -342,6 +360,10 @@ class UserInputAgent:
                 f"  Max cluster size : {intent.max_cluster_size_pct:.0%} "
                 f"(parsed from intent — overrides default 40%)"
             )
+        if intent.max_total_iterations is not None:
+            print(f"  Max run iterations: {intent.max_total_iterations}")
+        else:
+            print(f"  Max run iterations: 10 (default)")
         print("─" * 65)
 
         # ── Report to orchestrator ────────────────────────────────────────────
@@ -362,6 +384,7 @@ class UserInputAgent:
                 "has_constraints": bool(intent.constraints),
                 "n_clusters_requested": intent.n_clusters_requested,
                 "must_have_clusters": intent.must_have_clusters,
+                "max_total_iterations": intent.max_total_iterations,
             },
             recommendation="proceed",
             context={"user_intent": {
@@ -371,6 +394,7 @@ class UserInputAgent:
                 "constraints": intent.constraints,
                 "n_clusters_requested": intent.n_clusters_requested,
                 "must_have_clusters": intent.must_have_clusters,
+                "max_total_iterations": intent.max_total_iterations,
             }},
         ))
 
@@ -463,6 +487,14 @@ class UserInputAgent:
         else:
             must_have = []
 
+        max_iters_raw = payload.get("max_total_iterations")
+        try:
+            max_iters = int(max_iters_raw) if max_iters_raw not in (None, "", "null") else None
+            if max_iters is not None:
+                max_iters = max(1, min(max_iters, 50))
+        except (TypeError, ValueError):
+            max_iters = None
+
         max_pct = _parse_max_cluster_pct(purpose, constraints)
         # Honor explicit text-column directives in the constraints field so the
         # user can override the auto-detect heuristic (which goes by token
@@ -481,6 +513,7 @@ class UserInputAgent:
             modality=str(payload.get("modality") or "auto"),
             text_column=text_col_single,
             text_columns=text_cols_parsed,
+            max_total_iterations=max_iters,
         )
 
     def _announce(self, intent: "UserIntent", iteration: int = 0) -> None:
@@ -503,6 +536,10 @@ class UserInputAgent:
                 f"  Max cluster size : {intent.max_cluster_size_pct:.0%} "
                 f"(parsed from intent — overrides default 40%)"
             )
+        if intent.max_total_iterations is not None:
+            print(f"  Max run iterations: {intent.max_total_iterations}")
+        else:
+            print(f"  Max run iterations: 10 (default)")
         print("─" * 65)
 
         self.bus.report(OrchestratorMessage(
@@ -522,6 +559,7 @@ class UserInputAgent:
                 "has_constraints": bool(intent.constraints),
                 "n_clusters_requested": intent.n_clusters_requested,
                 "must_have_clusters": intent.must_have_clusters,
+                "max_total_iterations": intent.max_total_iterations,
             },
             recommendation="proceed",
             context={"user_intent": {
@@ -531,6 +569,7 @@ class UserInputAgent:
                 "constraints": intent.constraints,
                 "n_clusters_requested": intent.n_clusters_requested,
                 "must_have_clusters": intent.must_have_clusters,
+                "max_total_iterations": intent.max_total_iterations,
             }},
         ))
 

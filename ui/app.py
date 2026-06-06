@@ -845,6 +845,14 @@ def submit_intent():
     if len(purpose) < 5:
         return jsonify({'error': 'business_purpose is required (a sentence or two)'}), 400
 
+    max_iters_raw = payload.get('max_total_iterations')
+    try:
+        max_iters = int(max_iters_raw) if max_iters_raw not in (None, '', 'null') else None
+        if max_iters is not None:
+            max_iters = max(1, min(max_iters, 50))
+    except (TypeError, ValueError):
+        max_iters = None
+
     cleaned = {
         'target_entity': target,
         'business_purpose': purpose,
@@ -852,12 +860,64 @@ def submit_intent():
         'constraints': (payload.get('constraints') or '').strip(),
         'n_clusters_requested': payload.get('n_clusters_requested'),
         'must_have_clusters': payload.get('must_have_clusters') or [],
+        'max_total_iterations': max_iters,
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'pending_intent.json').write_text(
         json.dumps(cleaned, indent=2, ensure_ascii=False), encoding='utf-8',
     )
     return jsonify({'ok': True, 'intent': cleaned})
+
+
+@app.post('/api/control-gates')
+def submit_control_gates():
+    """Save the user's control-gate choices so the orchestrator can consume them.
+
+    Body: {"max_cluster_size_pct": 0.35, "sub_n_clusters": 3, "max_depth": 2}
+    """
+    payload = request.get_json(force=True) or {}
+    try:
+        max_pct = float(payload.get('max_cluster_size_pct', 0.40))
+        sub_k = int(payload.get('sub_n_clusters', 3))
+        depth = int(payload.get('max_depth', 2))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid numeric values'}), 400
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / 'pending_control_gates.json').write_text(
+        json.dumps({
+            'max_cluster_size_pct': max_pct,
+            'sub_n_clusters': sub_k,
+            'max_depth': depth,
+        }, indent=2, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    return jsonify({
+        'ok': True,
+        'max_cluster_size_pct': max_pct,
+        'sub_n_clusters': sub_k,
+        'max_depth': depth,
+    })
+
+
+@app.post('/api/column-resolution')
+def submit_column_resolution():
+    """Save the user's column-resolution choices so the orchestrator can consume them.
+
+    Body: {"entity_id": "customer_id", "timestamp": "Date", "amount": "amount", "category": "category"}
+    """
+    payload = request.get_json(force=True) or {}
+    cleaned = {
+        'entity_id': (payload.get('entity_id') or '').strip() or None,
+        'timestamp': (payload.get('timestamp') or '').strip() or None,
+        'amount': (payload.get('amount') or '').strip() or None,
+        'category': (payload.get('category') or '').strip() or None,
+    }
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / 'pending_column_resolution.json').write_text(
+        json.dumps(cleaned, indent=2, ensure_ascii=False), encoding='utf-8',
+    )
+    return jsonify({'ok': True, 'columns': cleaned})
 
 
 @app.post('/api/abort')
@@ -1218,12 +1278,13 @@ def explain_warning():
     payload = request.get_json(force=True) or {}
     agent = (payload.get('agent') or 'agent').strip()
     issue = (payload.get('issue') or '').strip()
+    iteration = payload.get('iteration')
     evidence = payload.get('evidence') or {}   # numbers backing the warning
     if not issue:
         return jsonify({'error': 'issue is required'}), 400
 
     # Cache hit? Return immediately without billing another LLM call.
-    cache_key = f"{agent}::{issue}"
+    cache_key = f"{agent}::{issue}::{iteration or ''}"
     now = time.time()
     with _EXPLAIN_CACHE_LOCK:
         hit = _EXPLAIN_CACHE.get(cache_key)
@@ -1235,6 +1296,7 @@ def explain_warning():
     # In bypass mode the user sees this as the AGENT'S DECISION (not advice).
     # The LLM must respond as if the action has already been taken / queued —
     # active voice, present/past tense, no "we recommend" or "you should".
+    _iter_note = f" (iteration {iteration})" if iteration is not None else ""
     ev_text = json.dumps(evidence, indent=2, ensure_ascii=False)[:1500]
     prompt = f"""You speak FOR the multi-agent pipeline. A warning fired and the
 pipeline is in BYPASS mode — that means the decision has already been made and
@@ -1245,7 +1307,12 @@ Use phrasing like: "The pipeline will / chose to / is applying / is keeping /
 is ignoring". DO NOT use "we recommend", "you should", "consider", "you may want
 to". Be concrete and short.
 
-Warning from: {agent}
+CRITICAL: Always reference the exact iteration number ({iteration or 'unknown'}) and
+the exact cluster numbers / values from the warning text. Do NOT invent different
+numbers. If the warning says "Cluster 4 has 50.9%", your explanation must say
+"Cluster 4 has 50.9%" — never "Cluster 0 has 92.4%".
+
+Warning from: {agent}{_iter_note}
 Warning text: "{issue}"
 
 Supporting evidence (numbers the agent saw):

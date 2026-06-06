@@ -532,6 +532,12 @@ main {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.6);
   display: grid; place-items: center; z-index: 60;
+  animation: modalPulse 0.6s ease-out;
+}
+@keyframes modalPulse {
+  0%   { background: rgba(0,0,0,0.3); }
+  50%  { background: rgba(0,0,0,0.75); }
+  100% { background: rgba(0,0,0,0.6); }
 }
 .modal.hidden { display: none; }
 .modal-card {

@@ -19,7 +19,17 @@ class UserIntent:
     n_clusters_requested: Optional[int] = None
     """If the user specifies an exact cluster count, ClusteringAgent uses it directly."""
     must_have_clusters: list = field(default_factory=list)
-    """Cluster attribute labels that must appear in the final result, e.g. ['traveller', 'VIP']."""
+    """Cluster attribute labels that must appear in the final result, e.g. ['traveller', 'VIP'].""" 
+    max_cluster_size_pct: Optional[float] = None
+    """Parsed from intent text: 'max cluster size 25%' -> 0.25."""
+    modality: str = "auto"
+    """Data modality: 'auto', 'tabular', or 'text'."""
+    text_column: Optional[str] = None
+    """For text modality: the column holding documents. None = auto-detect."""
+    text_columns: list = field(default_factory=list)
+    """For text modality: ordered columns to concatenate before embedding."""
+    max_total_iterations: Optional[int] = None
+    """Maximum orchestrator iterations for this run. None means use CLI default."""
 
 
 @dataclass
@@ -66,6 +76,8 @@ class ClusteringResult:
     algo_detail: str = ''
     k_scores: dict = field(default_factory=dict)   # {k: silhouette_score} from optimizer (NEW)
     algo_reasoning: str = ''                        # from algo_recommender (NEW)
+    candidate_evidence: dict = field(default_factory=dict)
+    """AutoML-as-skill candidate tournament evidence, if enabled."""
 
 
 @dataclass
@@ -176,6 +188,11 @@ class PipelineState:
     # Set once at the start of run() and consumed by _ask_parameter_tuning
     # to render a "prior experience" hint block for the tuning LLM.
     case_recall: object = None
+
+    # Column resolution — entity_id, timestamp, amount, category — resolved
+    # by the orchestrator after dataset examination (smart detection + LLM
+    # fallback in bypass, user modal in interactive).
+    resolved_columns: dict = field(default_factory=dict)
 
     def update_features(self, fs_result: FeatureSelectionResult) -> None:
         self.selected_features = fs_result.selected_features

@@ -60,6 +60,19 @@ function toast(msg, kind = 'success', ms = 2500) {
   setTimeout(() => t.classList.add('hidden'), ms);
 }
 
+// ── Browser notification for interactive-mode pauses ────────────────────────
+async function notifyUser(title, body) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '' });
+  } else if (Notification.permission !== 'denied') {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      new Notification(title, { body, icon: '' });
+    }
+  }
+}
+
 // ── State loading + rendering ───────────────────────────────────────────────
 
 async function loadState() {
@@ -1046,6 +1059,12 @@ function gatesForAgent(agentKey, status, metrics, issues) {
       const sil = Number(m.silhouette);
       push(`silhouette ${sil.toFixed(3)}`,
            sil >= 0.25 ? 'pass' : sil >= 0.15 ? 'warn' : 'fail');
+    }
+    // AutoML composite score chip
+    const candBest = m.candidate_search?.best;
+    if (candBest?.composite_score != null) {
+      const comp = Number(candBest.composite_score);
+      push(`AutoML comp ${comp.toFixed(3)}`, comp >= 0.6 ? 'pass' : comp >= 0.4 ? 'warn' : 'fail');
     }
     if (m.n_leaf_clusters != null || m.n_clusters != null)
       push(`${m.n_leaf_clusters || m.n_clusters} clusters`, 'pass');
@@ -2501,39 +2520,45 @@ async function triggerBypassAutoDecision(agent, issues) {
   const issueText = issues.join(' · ');
   const cur = outputsState[agent];
   if (cur?.autoDecision && cur.autoDecision._key === issueText) return;
-  // Preserve the PRIOR decision text while the new LLM call is in flight —
-  // otherwise the user sees a flash of "loading…" that wipes the visible
-  // explanation for 5-30 seconds.
   const prior = cur?.autoDecision;
+  const currentIter = cur?.latest?.iteration;
+  // Only preserve prior decision if it's from the SAME iteration.
+  // If iteration changed, old decisions are stale and must not be shown.
+  const sameIter = prior && prior.iteration != null && currentIter != null
+    ? prior.iteration === currentIter
+    : true;  // if no iteration info, preserve for backwards compat
   outputsState[agent].autoDecision = {
     _key: issueText,
+    iteration: currentIter,
     loading: true,
-    // Keep prior fields visible while we wait
-    decision: prior?.decision,
-    reasoning: prior?.reasoning,
-    visual: prior?.visual,
-    priorIssue: prior?._key,
+    // Keep prior fields visible while we wait ONLY if same iteration
+    decision: sameIter ? prior?.decision : undefined,
+    reasoning: sameIter ? prior?.reasoning : undefined,
+    visual: sameIter ? prior?.visual : undefined,
   };
   renderOutputsPanel();
   try {
     const r = await api('POST', '/api/explain', {
       agent, issue: issueText,
+      iteration: currentIter,
       evidence: cur?.latest?.metrics || {},
     });
     outputsState[agent].autoDecision = {
       _key: issueText,
+      iteration: currentIter,
       decision: r.decision || r.explanation || '',
       reasoning: r.reasoning || '',
       visual: r.visual_to_check || '',
       loading: false,
     };
   } catch (err) {
-    // On error, restore prior decision (don't wipe what was working)
+    // On error, restore prior decision only if same iteration
     outputsState[agent].autoDecision = {
       _key: prior?._key || issueText,
-      decision: prior?.decision,
-      reasoning: prior?.reasoning,
-      visual: prior?.visual,
+      iteration: sameIter ? prior?.iteration : currentIter,
+      decision: sameIter ? prior?.decision : undefined,
+      reasoning: sameIter ? prior?.reasoning : undefined,
+      visual: sameIter ? prior?.visual : undefined,
       error: err.message,
       loading: false,
     };
@@ -2660,7 +2685,7 @@ function renderOutputsPanel() {
       <div class="oc-auto">
         <div class="oc-auto-head">
           Pipeline decision
-          <span class="muted">(bypass mode · evidence ledger)</span>
+          <span class="muted">(bypass mode · evidence ledger${ad.iteration != null ? ` · iter ${ad.iteration}` : ''})</span>
           ${ad.loading ? `<span class="muted" style="color:var(--accent)"> · <span class="spinner"></span>updating…</span>` : ''}
         </div>
         ${hasDecision
@@ -2899,6 +2924,184 @@ function wireThresholdModal() {
     // Don't close on background click — these are critical decisions.
     // The user must pick an option (or wait for the timeout).
     ev.stopPropagation();
+  });
+}
+
+// ── Control-gates tuning modal (after dataset examination) ─────────────────
+// Triggered by `awaiting_control_gates` SSE events. The user sets
+// max_cluster_size_pct, sub_n_clusters, and max_depth before clustering.
+let _pendingControlGates = null;
+let _controlGatesTimeoutTimer = null;
+
+function openControlGatesModal(e) {
+  _pendingControlGates = e;
+  const defaults = e.defaults || {};
+  $('#cg-max-pct').value = defaults.max_cluster_size_pct ?? 0.40;
+  $('#cg-sub-k').value = defaults.sub_n_clusters ?? 3;
+  $('#cg-max-depth').value = defaults.max_depth ?? 2;
+
+  // Build a friendly stats summary
+  const stats = e.dataset_stats || {};
+  const lines = [];
+  if (stats.n_rows) lines.push(`${Number(stats.n_rows).toLocaleString()} rows`);
+  if (stats.n_features) lines.push(`${stats.n_features} features`);
+  if (stats.modality) lines.push(`modality=${stats.modality}`);
+  if (stats.mean_abs_skewness != null) lines.push(`skew=${stats.mean_abs_skewness}`);
+  $('#control-gates-context').innerHTML =
+    lines.length ? `<b>Dataset:</b> ${lines.join(' · ')}` : '';
+
+  $('#control-gates-modal').classList.remove('hidden');
+
+  if (_controlGatesTimeoutTimer) clearInterval(_controlGatesTimeoutTimer);
+  const deadline = Date.now() + (Number(e.timeout_s || 300) * 1000);
+  const tickLabel = () => {
+    const remaining = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    const m = Math.floor(remaining / 60), s = remaining % 60;
+    $('#control-gates-timeout-label').textContent =
+      remaining > 0
+        ? `Auto-continues with defaults in ${m}:${String(s).padStart(2, '0')}.`
+        : 'Auto-continuing with defaults…';
+  };
+  tickLabel();
+  _controlGatesTimeoutTimer = setInterval(tickLabel, 1000);
+}
+
+function closeControlGatesModal() {
+  _pendingControlGates = null;
+  if (_controlGatesTimeoutTimer) { clearInterval(_controlGatesTimeoutTimer); _controlGatesTimeoutTimer = null; }
+  $('#control-gates-modal').classList.add('hidden');
+}
+
+async function submitControlGates(useDefaults) {
+  const payload = useDefaults
+    ? {
+        max_cluster_size_pct: (_pendingControlGates?.defaults?.max_cluster_size_pct) ?? 0.40,
+        sub_n_clusters: (_pendingControlGates?.defaults?.sub_n_clusters) ?? 3,
+        max_depth: (_pendingControlGates?.defaults?.max_depth) ?? 2,
+      }
+    : {
+        max_cluster_size_pct: Number($('#cg-max-pct').value),
+        sub_n_clusters: Number($('#cg-sub-k').value),
+        max_depth: Number($('#cg-max-depth').value),
+      };
+  try {
+    await api('POST', '/api/control-gates', payload);
+    closeControlGatesModal();
+    toast(
+      `Control gates set: max=${payload.max_cluster_size_pct}% · sub=${payload.sub_n_clusters} · depth=${payload.max_depth}`,
+      'success', 3000
+    );
+  } catch (err) {
+    toast(`Could not submit control gates: ${err.message}`, 'error', 4000);
+  }
+}
+
+function wireControlGatesModal() {
+  $('#cg-apply').onclick = () => submitControlGates(false);
+  $('#cg-use-defaults').onclick = () => submitControlGates(true);
+  $('#control-gates-modal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'control-gates-modal') closeControlGatesModal();
+  });
+}
+
+// ── Column-resolution modal (after dataset examination when ambiguous) ─────
+let _pendingColumnResolution = null;
+let _columnResolutionTimeoutTimer = null;
+
+function openColumnResolutionModal(e) {
+  _pendingColumnResolution = e;
+  const ambig = e.ambiguous_roles || {};
+  const heur = e.heuristics || {};
+  const allCols = (e.schema || '').split('\n').map(l => l.trim()).filter(l => l.startsWith('  '));
+  const colNames = allCols.map(l => l.split(':')[0].trim());
+
+  function _buildSelect(id, role, candidates, fallback) {
+    const sel = $(id);
+    sel.innerHTML = '';
+    const optBlank = document.createElement('option');
+    optBlank.value = '';
+    optBlank.textContent = '-- none --';
+    sel.appendChild(optBlank);
+    const cands = candidates && candidates.length ? candidates : colNames;
+    for (const c of cands) {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      if (c === fallback) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    // If no candidate matched the fallback, add it
+    if (fallback && !Array.from(sel.options).some(o => o.value === fallback)) {
+      const opt = document.createElement('option');
+      opt.value = fallback;
+      opt.textContent = fallback + ' (detected)';
+      opt.selected = true;
+      sel.insertBefore(opt, sel.options[1]);
+    }
+  }
+
+  _buildSelect('#cr-entity-id', 'entity_id', ambig.entity_id, heur.entity_id);
+  _buildSelect('#cr-timestamp', 'timestamp', ambig.timestamp, heur.timestamp);
+  _buildSelect('#cr-amount', 'amount', ambig.amount, heur.amount);
+  _buildSelect('#cr-category', 'category', ambig.category, heur.category);
+
+  const stats = e.dataset_stats || {};
+  const lines = [];
+  if (stats.n_rows) lines.push(`${Number(stats.n_rows).toLocaleString()} rows`);
+  if (stats.n_cols) lines.push(`${stats.n_cols} columns`);
+  $('#column-resolution-context').innerHTML =
+    lines.length ? `<b>Dataset:</b> ${lines.join(' · ')}` : '';
+
+  $('#column-resolution-modal').classList.remove('hidden');
+
+  if (_columnResolutionTimeoutTimer) clearInterval(_columnResolutionTimeoutTimer);
+  const deadline = Date.now() + (Number(e.timeout_s || 300) * 1000);
+  const tickLabel = () => {
+    const remaining = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    const m = Math.floor(remaining / 60), s = remaining % 60;
+    $('#column-resolution-timeout-label').textContent =
+      remaining > 0
+        ? `Auto-continues with detected in ${m}:${String(s).padStart(2, '0')}.`
+        : 'Auto-continuing with detected…';
+  };
+  tickLabel();
+  _columnResolutionTimeoutTimer = setInterval(tickLabel, 1000);
+}
+
+function closeColumnResolutionModal() {
+  _pendingColumnResolution = null;
+  if (_columnResolutionTimeoutTimer) { clearInterval(_columnResolutionTimeoutTimer); _columnResolutionTimeoutTimer = null; }
+  $('#column-resolution-modal').classList.add('hidden');
+}
+
+async function submitColumnResolution(useHeuristics) {
+  const payload = useHeuristics
+    ? {
+        entity_id: (_pendingColumnResolution?.heuristics?.entity_id) || null,
+        timestamp: (_pendingColumnResolution?.heuristics?.timestamp) || null,
+        amount: (_pendingColumnResolution?.heuristics?.amount) || null,
+        category: (_pendingColumnResolution?.heuristics?.category) || null,
+      }
+    : {
+        entity_id: $('#cr-entity-id').value || null,
+        timestamp: $('#cr-timestamp').value || null,
+        amount: $('#cr-amount').value || null,
+        category: $('#cr-category').value || null,
+      };
+  try {
+    await api('POST', '/api/column-resolution', payload);
+    closeColumnResolutionModal();
+    toast('Column roles confirmed — pipeline continuing.', 'success', 3000);
+  } catch (err) {
+    toast(`Could not submit column resolution: ${err.message}`, 'error', 4000);
+  }
+}
+
+function wireColumnResolutionModal() {
+  $('#cr-apply').onclick = () => submitColumnResolution(false);
+  $('#cr-use-heuristics').onclick = () => submitColumnResolution(true);
+  $('#column-resolution-modal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'column-resolution-modal') closeColumnResolutionModal();
   });
 }
 
@@ -3361,9 +3564,27 @@ function handleEvent(e) {
   // starts/finishes so the active-agent + thinking-orchestrator are live.
   setTimeout(applyArchFromEvents, 0);
   if (ev === 'silhouette_target_missed') {
-    appendLogLine(`[${(e.ts || '').slice(11,19)}] ESCALATION CHECK — silhouette ${Number(e.silhouette || 0).toFixed(3)} < target ${Number(e.target).toFixed(2)} (re-eng ${e.consecutive_failures}/${e.max_failures} · relax ${e.relax_failures || 0}/${e.max_relax_failures || 5})`);
-    toast(`Silhouette ${Number(e.silhouette).toFixed(3)} < ${Number(e.target).toFixed(2)} · re-eng ${e.consecutive_failures}/${e.max_failures}`,
-      e.consecutive_failures >= e.max_failures ? 'error' : 'success', 4500);
+    const best = e.candidate_best || {};
+    const algoLabel = best.algorithm || 'N/A';
+    const kLabel = best.k || 'N/A';
+    const comp = best.composite_score != null ? Number(best.composite_score).toFixed(3) : 'N/A';
+    const db = best.davies_bouldin != null ? Number(best.davies_bouldin).toFixed(2) : 'N/A';
+    const ch = best.calinski_harabasz != null ? Number(best.calinski_harabasz).toFixed(1) : 'N/A';
+    const ari = best.stability_ari != null ? Number(best.stability_ari).toFixed(3) : 'N/A';
+    const algosStr = (e.algorithms || []).join(', ');
+    const logMsg = (
+      `[${(e.ts || '').slice(11,19)}] ESCALATION CHECK - ` +
+      `silhouette ${Number(e.silhouette || 0).toFixed(3)} < target ${Number(e.target || 0).toFixed(2)} ` +
+      `(re-eng ${e.consecutive_failures}/${e.max_failures} - relax ${e.relax_failures || 0}/${e.max_relax_failures || 5})` +
+      ` | AutoML: ${e.n_candidates || 0} candidates (${algosStr}), best=${algoLabel}(k=${kLabel}, comp=${comp}, sil=${(best.silhouette != null ? Number(best.silhouette).toFixed(3) : 'N/A')}, DB=${db}, CH=${ch}, ARI=${ari})`
+    );
+    appendLogLine(logMsg);
+    const toastMsg = (
+      `Silhouette ${Number(e.silhouette).toFixed(3)} < ${Number(e.target).toFixed(2)} ` +
+      `- re-eng ${e.consecutive_failures}/${e.max_failures} ` +
+      `- AutoML best: ${algoLabel} k=${kLabel} (comp=${comp})`
+    );
+    toast(toastMsg, e.consecutive_failures >= e.max_failures ? 'error' : 'success', 5000);
     return;
   }
   if (ev === 'feature_re_engineering') {
@@ -3384,8 +3605,35 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_silhouette_relaxation') {
+    showLivePanel(true);
     openRelaxModal(e);
+    toast('⏸ Pipeline paused — silhouette target needs your input', 'error', 6000);
+    notifyUser('Pipeline paused', 'Silhouette target relaxation — the pipeline needs your decision.');
     appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — 5 silhouette misses, asking you to lower the target`);
+    return;
+  }
+  if (ev === 'awaiting_control_gates') {
+    showLivePanel(true);
+    openControlGatesModal(e);
+    toast('⏸ Pipeline paused — control gates need your input', 'error', 6000);
+    notifyUser('Pipeline paused', 'Control gates tuning — the pipeline needs your decision.');
+    appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — dataset examined, asking you to tune control gates`);
+    return;
+  }
+  if (ev === 'control_gates_tuned') {
+    appendLogLine(`[${(e.ts || '').slice(11,19)}] Control gates tuned (${e.mode} · ${e.source}): max=${(e.max_cluster_size_pct * 100).toFixed(0)}% sub=${e.sub_n_clusters} depth=${e.max_depth}`);
+    return;
+  }
+  if (ev === 'awaiting_column_resolution') {
+    showLivePanel(true);
+    openColumnResolutionModal(e);
+    toast('⏸ Pipeline paused — column roles need your input', 'error', 6000);
+    notifyUser('Pipeline paused', 'Column resolution — the pipeline needs your decision.');
+    appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — ambiguous columns, asking you to confirm roles`);
+    return;
+  }
+  if (ev === 'columns_resolved') {
+    appendLogLine(`[${(e.ts || '').slice(11,19)}] Columns resolved (${e.mode} · ${e.source}): entity=${e.entity_id || 'N/A'} ts=${e.timestamp || 'N/A'} amount=${e.amount || 'N/A'} category=${e.category || 'N/A'}`);
     return;
   }
   if (ev === 'case_memory_recall') {
@@ -3396,7 +3644,10 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_case_recall_decision') {
+    showLivePanel(true);
     openRecallModal(e);
+    toast('⏸ Pipeline paused — case memory recall needs your input', 'error', 6000);
+    notifyUser('Pipeline paused', 'Case memory recall — the pipeline needs your decision.');
     appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — case memory matched, asking Reuse/Modify/Ignore`);
     return;
   }
@@ -3429,7 +3680,10 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_user_decision') {
+    showLivePanel(true);
     openDecisionModal(e);
+    toast(`⏸ Pipeline paused — ${e.agent} needs your decision`, 'error', 6000);
+    notifyUser('Pipeline paused', `${e.agent} — the pipeline needs your decision.`);
     appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — awaiting your decision (${e.agent})`);
     return;
   }
@@ -3438,12 +3692,18 @@ function handleEvent(e) {
     return;
   }
   if (ev === 'awaiting_threshold_decision') {
+    showLivePanel(true);
     openThresholdModal(e);
+    toast('⏸ Pipeline paused — threshold decision needs your input', 'error', 6000);
+    notifyUser('Pipeline paused', 'Threshold decision — the pipeline needs your decision.');
     appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — threshold decision (${e.decision_id})`);
     return;
   }
   if (ev === 'awaiting_human_checkpoint') {
+    showLivePanel(true);
     openCheckpointModal(e);
+    toast('⏸ Pipeline paused — human checkpoint needs your approval', 'error', 6000);
+    notifyUser('Pipeline paused', 'Human checkpoint — the pipeline needs your approval.');
     appendLogLine(`[${(e.ts || '').slice(11,19)}] PAUSED — human checkpoint (algo=${e.algorithm}, F1=${e.cv_f1_macro})`);
     return;
   }
@@ -3476,6 +3736,8 @@ function handleEvent(e) {
     // Pipeline is idle on the intent form — hide the abort button.
     const abortBtn = $('#abort-btn');
     if (abortBtn) { abortBtn.classList.add('hidden'); abortBtn.disabled = false; abortBtn.textContent = 'Abort & New Run'; }
+    toast('⏸ Pipeline paused — waiting for your intent', 'error', 6000);
+    notifyUser('Pipeline paused', 'The pipeline is waiting for your clustering intent.');
     appendLogLine(`[${(e.ts || '').slice(11,19)}] awaiting_intent — pipeline paused for UI`);
     return;
   }
@@ -3524,6 +3786,7 @@ function handleEvent(e) {
       Object.keys(costEvidenceStats).forEach((k) => delete costEvidenceStats[k]);
       Object.keys(costNamingStats).forEach((k) => delete costNamingStats[k]);
       Object.keys(outputsState).forEach((k) => delete outputsState[k]);
+      _autoAppliedDecisions.length = 0;
       state.personas = {};
       state.profiles = {};
       state.summary = {};
@@ -3798,14 +4061,25 @@ function wireIntentForm() {
       return;
     }
     const k = $('#intent-k').value.trim();
+    const maxItersRaw = $('#intent-max-iters').value.trim();
     const musthave = $('#intent-musthave').value.split(',').map(s => s.trim()).filter(Boolean);
     const datasetPath = _uploadedPath || $('#intent-dataset').value.trim();
+    let maxTotalIterations = null;
+    if (maxItersRaw && /^\d+$/.test(maxItersRaw)) {
+      const n = Number(maxItersRaw);
+      if (n >= 1 && n <= 50) maxTotalIterations = n;
+    }
+    const colHint = (id) => {
+      const v = $(id).value.trim();
+      return v || null;
+    };
     const payload = {
       target_entity: target,
       business_purpose: purpose,
       dataset_path: datasetPath,
       constraints: $('#intent-constraints').value.trim(),
       n_clusters_requested: k && /^\d+$/.test(k) ? Number(k) : null,
+      max_total_iterations: maxTotalIterations,
       must_have_clusters: musthave,
     };
     btn.disabled = true;
@@ -3902,6 +4176,8 @@ async function boot() {
   wireDecisionModal();
   wireRelaxModal();
   wireThresholdModal();
+  wireControlGatesModal();
+  wireColumnResolutionModal();
   wireCheckpointModal();
   wireRecallModal();
   wireModeToggle();

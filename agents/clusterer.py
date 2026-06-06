@@ -31,6 +31,10 @@ from agents.user_input import UserIntent
 from agents.dataset_examiner import DatasetProfile
 from skills.silhouette_optimizer import optimize_k
 from skills.algo_recommender import recommend_algorithm
+from skills.automl_candidate_search import (
+    candidate_search_to_dict,
+    search_clustering_candidates,
+)
 from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -609,6 +613,8 @@ class ClusteringAgent:
             valid_algos = valid_algos + ('lda', 'nmf', 'llm_cluster')
         algo_override = str(cfg.get('clustering_algorithm', '')).lower()
         algo_reasoning = ""
+        candidate_evidence: dict = {}
+        candidate_best = None
 
         if algo_override in valid_algos:
             algorithm = algo_override
@@ -643,14 +649,59 @@ class ClusteringAgent:
             algo_reasoning = rec.reasoning
             print(f'  Algorithm auto-selected: {algorithm}  (confidence={rec.confidence:.2f})')
 
-        # ── Step 3: K selection ───────────────────────────────────────────────
-        # Priority: user_intent.n_clusters_requested > config.n_clusters > silhouette auto-select
+        # ── Step 2.5: AutoML-as-skill candidate tournament ───────────────────
+        # The recommender gives a fast prior; the candidate search gives
+        # evidence. It evaluates several algorithm/k combinations with
+        # silhouette, bootstrap stability (ARI), and cluster-size balance, then
+        # seeds the normal Clusterer path with the winner.
         n_clusters_override = cfg.get('n_clusters', None)
         n_clusters_user = (
             user_intent.n_clusters_requested
             if user_intent and getattr(user_intent, 'n_clusters_requested', None)
             else None
         )
+        candidate_search_enabled = bool(cfg.get('enable_automl_candidate_search', True))
+        if (
+            candidate_search_enabled
+            and algo_override not in valid_algos
+            and not (n_clusters_user and isinstance(n_clusters_user, int))
+            and not (n_clusters_override and isinstance(n_clusters_override, int))
+        ):
+            k_range_for_search = cfg.get('k_search_range', DEFAULT_K_SEARCH_RANGE)
+            configured_algos = cfg.get('candidate_search_algorithms')
+            if configured_algos:
+                candidate_algos = list(configured_algos)
+            elif text_mode:
+                candidate_algos = ['kmeans', 'hierarchical']
+            else:
+                candidate_algos = [algorithm, 'kmeans', 'hierarchical', 'gmm']
+            try:
+                search_result = search_clustering_candidates(
+                    X_scaled,
+                    algorithms=candidate_algos,
+                    k_range=k_range_for_search,
+                    metric=sil_metric,
+                    max_cluster_size_pct=max_pct,
+                    stability_repeats=int(cfg.get('candidate_stability_repeats', 3)),
+                    stability_sample_frac=float(cfg.get('candidate_stability_sample_frac', 0.80)),
+                    top_n=int(cfg.get('candidate_search_top_n', 8)),
+                    verbose=True,
+                )
+                candidate_evidence = candidate_search_to_dict(search_result)
+                candidate_best = search_result.best
+                if candidate_best is not None:
+                    algorithm = candidate_best.algorithm
+                    algo_reasoning = f"{algo_reasoning}\n{search_result.reasoning}".strip()
+                    print(f'  AutoML candidate winner: {search_result.reasoning}')
+            except Exception as exc:
+                candidate_evidence = {
+                    "error": str(exc),
+                    "reasoning": "Candidate search failed; falling back to recommender + silhouette optimizer.",
+                }
+                print(f'  [AutoMLCandidateSearch] failed: {exc}')
+
+        # ── Step 3: K selection ───────────────────────────────────────────────
+        # Priority: user_intent.n_clusters_requested > config.n_clusters > silhouette auto-select
         k_scores: dict[int, float] = {}
 
         if n_clusters_user and isinstance(n_clusters_user, int) and n_clusters_user >= 2:
@@ -659,6 +710,18 @@ class ClusteringAgent:
         elif n_clusters_override and isinstance(n_clusters_override, int) and n_clusters_override > 0:
             n_clusters = n_clusters_override
             print(f'  k: {n_clusters} (from config)')
+        elif candidate_best is not None and candidate_best.k is not None:
+            n_clusters = int(candidate_best.k)
+            k_scores = {
+                int(c["k"]): float(c["silhouette"])
+                for c in candidate_evidence.get("candidates", [])
+                if c.get("algorithm") == algorithm and c.get("k") is not None
+            }
+            print(
+                f'  k: {n_clusters} (from AutoML candidate search; '
+                f'silhouette={candidate_best.silhouette:.4f}, '
+                f'stability_ari={candidate_best.stability_ari:.4f})'
+            )
         else:
             k_range = cfg.get('k_search_range', DEFAULT_K_SEARCH_RANGE)
             # DBSCAN doesn't use k; use a default for silhouette evaluation
@@ -675,7 +738,12 @@ class ClusteringAgent:
                 )
                 n_clusters = sil_result.best_k
                 k_scores = sil_result.scores
-                print(f'  k auto-selected: {n_clusters}  (silhouette={sil_result.best_silhouette:.4f})')
+                print(
+                    f'  k auto-selected: {n_clusters}  '
+                    f'composite={sil_result.best_composite:.3f}  '
+                    f'silhouette={sil_result.best_silhouette:.4f}  '
+                    f'DB={sil_result.best_db:.4f}  CH={sil_result.best_ch:.1f}'
+                )
 
                 if sil_result.warning:
                     print(f'  WARNING: {sil_result.warning}')
@@ -832,11 +900,11 @@ class ClusteringAgent:
                                 what_was_done=f"Clustered with k={n_clusters}, ran deepening loop",
                                 what_was_not_done=f"Could not resolve oversized cluster C{_parent}",
                                 doubts="Oversized cluster may reflect feature redundancy",
-                                issues=[f"Cluster {_parent} has {_pct:.1%} of data (>{max_pct:.0%} threshold)"],
-                                metrics={"silhouette": round(sil, 4), "n_clusters": n_clusters},
-                                recommendation="retry",
-                                context={"llm_decision": decision},
-                            ))
+                            issues=[f"Cluster {_parent} has {_pct:.1%} of data (>{max_pct:.0%} threshold)"],
+                            metrics={"silhouette": round(sil, 4), "n_clusters": n_clusters},
+                            recommendation="retry",
+                            context={"llm_decision": decision, "candidate_evidence": candidate_evidence},
+                        ))
                         return ClusteringResult(
                             action='reselect_features',
                             cluster_labels=None,
@@ -850,6 +918,7 @@ class ClusteringAgent:
                             algo_detail=algo_detail,
                             k_scores=k_scores,
                             algo_reasoning=algo_reasoning,
+                            candidate_evidence=candidate_evidence,
                         )
 
                     print(f'    LLM recommends sub-clustering C{_parent}.')
@@ -1054,6 +1123,7 @@ class ClusteringAgent:
                     reasoning='User requested smaller min_cluster_size — retry.',
                     iteration=iteration, algo_name=algo_name, algo_detail=algo_detail,
                     k_scores=k_scores, algo_reasoning=algo_reasoning,
+                    candidate_evidence=candidate_evidence,
                 )
             # 'abort' and 'reselect' both fall through to the existing
             # blocked-report path below.
@@ -1085,6 +1155,7 @@ class ClusteringAgent:
                         "singleton_merges": len(singleton_merges),
                         "min_cluster_size": min_cluster_size,
                         "k_scores": {str(k): v for k, v in k_scores.items()},
+                        "candidate_search": candidate_evidence.get("best"),
                     },
                     recommendation="retry",
                     context={
@@ -1092,6 +1163,7 @@ class ClusteringAgent:
                         "algo_reasoning": algo_reasoning,
                         "k_scores": k_scores,
                         "singleton_merges": singleton_merges,
+                        "candidate_evidence": candidate_evidence,
                     },
                 ))
             return ClusteringResult(
@@ -1111,6 +1183,7 @@ class ClusteringAgent:
                 algo_detail=algo_detail,
                 k_scores=k_scores,
                 algo_reasoning=algo_reasoning,
+                candidate_evidence=candidate_evidence,
             )
 
         sil = silhouette_score(X_scaled, work_df['cluster'], metric=sil_metric)
@@ -1192,7 +1265,7 @@ class ClusteringAgent:
                         issues=["User aborted from threshold-decision modal."],
                         metrics={"silhouette": round(sil, 4)},
                         recommendation="abort",
-                        context={"action": "abort"},
+                        context={"action": "abort", "candidate_evidence": candidate_evidence},
                     ))
                 return ClusteringResult(
                     action='reselect_features',  # closest existing terminal action
@@ -1201,6 +1274,7 @@ class ClusteringAgent:
                     reasoning='User aborted at silhouette-floor decision.',
                     iteration=iteration, algo_name=algo_name, algo_detail=algo_detail,
                     k_scores=k_scores, algo_reasoning=algo_reasoning,
+                    candidate_evidence=candidate_evidence,
                 )
             if chosen == 'relax':
                 # User accepts the low silhouette — fall through to the normal
@@ -1227,9 +1301,15 @@ class ClusteringAgent:
                             "k_selected": n_clusters,
                             "silhouette": round(sil, 4),
                             "k_scores": {str(k): v for k, v in k_scores.items()},
+                            "candidate_search": candidate_evidence.get("best"),
                         },
                         recommendation="retry",
-                        context={"action": "reselect_features", "algo_reasoning": algo_reasoning, "k_scores": k_scores},
+                        context={
+                            "action": "reselect_features",
+                            "algo_reasoning": algo_reasoning,
+                            "k_scores": k_scores,
+                            "candidate_evidence": candidate_evidence,
+                        },
                     ))
                 return ClusteringResult(
                     action='reselect_features',
@@ -1244,6 +1324,7 @@ class ClusteringAgent:
                     algo_detail=algo_detail,
                     k_scores=k_scores,
                     algo_reasoning=algo_reasoning,
+                    candidate_evidence=candidate_evidence,
                 )
 
         sil_quality = (
@@ -1257,20 +1338,52 @@ class ClusteringAgent:
         # pass bar the orchestrator will enforce next.
         status = "success" if sil >= _target else "warning"
         issues = []
+
+        # Build rich AutoML context for the issue text
+        _cs_best = candidate_evidence.get("best") if candidate_evidence else None
+        _cs_all = candidate_evidence.get("candidates", []) if candidate_evidence else []
+        _automl_ctx = ""
+        def _fmt(val, fmt=".3f"):
+            try:
+                return format(float(val), fmt)
+            except (TypeError, ValueError):
+                return str(val)
+
+        if _cs_best:
+            _automl_ctx = (
+                f"AutoML evaluated {len(_cs_all)} candidate(s). "
+                f"Best: {_cs_best['algorithm']} k={_cs_best['k']} "
+                f"with composite={_fmt(_cs_best.get('composite_score'), '.3f')} "
+                f"(sil={_fmt(_cs_best.get('silhouette'))}, "
+                f"DB={_fmt(_cs_best.get('davies_bouldin'), '.2f')}, "
+                f"CH={_fmt(_cs_best.get('calinski_harabasz'), '.1f')}, "
+                f"ARI={_fmt(_cs_best.get('stability_ari'))}). "
+            )
+
         if sil < _target:
             issues.append(
+                f"{_automl_ctx}"
                 f"Silhouette={sil:.3f} < target {_target:.2f} — orchestrator will "
                 "reselect features (or escalate after 3 consecutive misses)."
             )
         elif sil < 0.25:
             issues.append(
+                f"{_automl_ctx}"
                 f"Silhouette={sil:.3f} < 0.25 — meets dynamic target {_target:.2f} "
                 "but clusters may still overlap; consider different k or algorithm."
             )
 
         # Build doubt + merge diagnosis
         doubt_parts = []
-        if k_scores:
+        if _cs_all:
+            # Show top-3 candidates for transparency
+            _top3 = sorted(_cs_all, key=lambda c: c.get('composite_score', 0), reverse=True)[:3]
+            _top3_str = " | ".join(
+                f"{c['algorithm']}(k={c['k']}, comp={_fmt(c.get('composite_score'), '.3f')}, sil={_fmt(c.get('silhouette'))})"
+                for c in _top3
+            )
+            doubt_parts.append(f"AutoML top-3: {_top3_str}.")
+        elif k_scores:
             doubt_parts.append(
                 f"Silhouette improved {min(k_scores.values(), default=0):.3f}→{sil:.3f} "
                 f"across k range — marginal gain."
@@ -1292,15 +1405,19 @@ class ClusteringAgent:
                 status=status,
                 what_was_done=(
                     f"Used {algo_name} with k={n_clusters} "
-                    f"(auto-selected via silhouette). "
-                    f"Ran deepening loop → {n_leaf} leaf clusters. "
-                    f"Silhouette={sil:.4f} ({sil_quality})."
+                    + (
+                        f"(AutoML-selected from {len(_cs_all)} candidates, composite={_cs_best.get('composite_score', 'N/A')}). "
+                        if _cs_best else f"(auto-selected via silhouette). "
+                    )
+                    + f"Ran deepening loop → {n_leaf} leaf clusters. "
+                    + f"Silhouette={sil:.4f} ({sil_quality})."
                     + (f" Merged {len(singleton_merges)} tiny cluster(s) "
                        f"(n<{min_cluster_size}) into nearest leaf."
                        if singleton_merges else "")
                 ),
                 what_was_not_done=(
-                    "Did not try all algorithm variants simultaneously."
+                    "Did not run exhaustive hyperparameter optimisation; candidate "
+                    "search is bounded by config."
                 ),
                 doubts=" ".join(doubt_parts),
                 issues=issues,
@@ -1313,12 +1430,14 @@ class ClusteringAgent:
                     "k_scores": {str(k): v for k, v in k_scores.items()},
                     "singleton_merges": len(singleton_merges),
                     "min_cluster_size": min_cluster_size,
+                    "candidate_search": candidate_evidence,
                 },
                 recommendation="proceed" if not issues else "retry",
                 context={
                     "algo_reasoning": algo_reasoning,
                     "k_scores": k_scores,
                     "singleton_merges": singleton_merges,
+                    "candidate_evidence": candidate_evidence,
                 },
             ))
 
@@ -1335,6 +1454,7 @@ class ClusteringAgent:
             algo_detail=algo_detail,
             k_scores=k_scores,
             algo_reasoning=algo_reasoning,
+            candidate_evidence=candidate_evidence,
         )
 
     # ── Helpers ────────────────────────────────────────────────────────────────

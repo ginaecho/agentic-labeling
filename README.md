@@ -23,7 +23,7 @@ Solid arrows = forward path; dotted arrows = feedback loops. The Orchestrator + 
 | ② | **FeatureEngineerAgent** *(tabular)* | Entity-level feature matrix from raw event data via LLM-planned statistical ops. Saves to `data/processed/`. |
 | ② | **TextPreparerAgent** *(text)* | Replaces FeatureEngineer for document corpora. Embeds via `text_vectorizer` (TF-IDF+SVD or sentence-transformers); stashes docs + vocab for c-TF-IDF terms downstream. |
 | ③ | **FeatureSelectionAgent** | PCA + autoencoder + VIF gate → LLM picks a subset. **Short-circuits in text mode** (keeps all embedding dims). |
-| ④ | **ClusteringAgent** | Five algorithms, silhouette k-opt, oversized-cluster deepening. **Text mode:** L2-normalize, cosine silhouette, c-TF-IDF distinctive terms + representative docs. |
+| ④ | **ClusteringAgent** | AutoML-as-skill candidate tournament, five algorithms, silhouette k-opt, oversized-cluster deepening. **Text mode:** L2-normalize, cosine silhouette, c-TF-IDF distinctive terms + representative docs. |
 | ⑤ | **PersonaNamingAgent** | LLM names clusters from numeric deviations or, in text mode, distinctive terms + doc snippets. Clarity Gate must pass. |
 | ⑥ | **ClassifierAgent** | LLM picks classifier; 5-fold CV. Routes back on low F1 (threshold 0.70 tabular / 0.60 text). |
 
@@ -133,4 +133,82 @@ If 10 iterations finish without passing all gates, the pipeline enters **best-ef
 | VIF checker | `skills/vif_checker.py` | FeatureSelector |
 | Silhouette optimizer | `skills/silhouette_optimizer.py` | Clusterer (euclidean or cosine) |
 | Algorithm recommender | `skills/algo_recommender.py` | Clusterer |
+| AutoML candidate search | `skills/automl_candidate_search.py` | Clusterer — bounded algorithm/k tournament with stability evidence |
 | Text vectorizer | `skills/text_vectorizer.py` | TextPreparer |
+
+---
+
+## Appendix: Agentic Workflow vs AutoML
+
+AutoML automates model selection: it searches preprocessing choices, algorithms,
+hyperparameters, and validation metrics. This workflow uses that idea, but treats
+AutoML as one skill inside a broader agentic analysis loop. The goal is not only
+to find a cluster assignment with a good score; the goal is to produce clusters
+that are stable, explainable, nameable, aligned with the user's intent, and usable
+for a business decision.
+
+### Key differences
+
+| Dimension | Typical AutoML | This agentic workflow |
+|-----------|----------------|-----------------------|
+| Starting point | Dataset + metric | User intent, target entity, business purpose, constraints, and optional must-have cluster types |
+| Search mechanism | Pipeline/model/hyperparameter search | AutoML-style candidate search plus agent routing, feature loops, naming gates, classifier validation, and human checkpoint |
+| Objective | Optimise one or a few ML metrics | Optimise usable segmentation: separation, stability, feature quality, persona clarity, size balance, business fit, and user feedback |
+| Unsupervised labelling | Usually absent or shallow | Dedicated `PersonaNamingAgent` turns cluster evidence into human-readable personas |
+| Failure handling | Try another model or report best score | Diagnose the failure and route back to feature engineering, feature selection, clustering, threshold relaxation, or human review |
+| Validation | Metric-driven, often silhouette/inertia/CV | Multi-gate: VIF/correlation, silhouette, oversized-cluster deepening, Clarity Gate, pseudo-label classifier F1, and human approval |
+| Memory | Usually starts fresh | Case Memory and Adaptive Memory reuse prior recipes and user corrections |
+| Output | Best model/pipeline | Personas, profiles, labels, lineage, metrics, evidence ledger, reasoning trace, feedback log, and reusable memory |
+
+### Where AutoML lives in this system
+
+The Clusterer now has an AutoML-as-skill candidate tournament:
+
+```text
+skills/automl_candidate_search.py
+```
+
+When `clustering_algorithm: auto` and `n_clusters` is unset, the skill evaluates
+a bounded set of algorithm/k candidates and ranks them by:
+
+```text
+max(0, silhouette) * 70
++ bootstrap_stability_ari * 25
+- oversized_cluster_penalty
+```
+
+The agent uses the winning candidate as evidence-backed input to the normal
+clustering, profiling, naming, and validation path. This keeps brute-force search
+in deterministic code while leaving judgment, diagnosis, and interpretation to
+the agents.
+
+### Why it can do better than plain AutoML
+
+1. **It optimises the real deliverable.** For unsupervised clustering, the useful
+   deliverable is not a model alone. It is a set of meaningful groups a human can
+   understand and act on.
+
+2. **It combines quantitative and semantic gates.** A candidate can have a good
+   silhouette and still be useless if the personas are vague, duplicated, too
+   broad, or misaligned with the stated business purpose.
+
+3. **It tests repeatability, not just fit.** Candidate search includes bootstrap
+   stability via ARI, so a slightly lower-silhouette but more stable solution can
+   beat a fragile one.
+
+4. **It can recover from the right layer.** If clustering fails, the orchestrator
+   can change features, vectorizers, algorithms, k-ranges, thresholds, or route
+   to human review instead of blindly continuing the same search space.
+
+5. **It turns feedback into future performance.** Human renames, merge decisions,
+   hints, and successful recipes are saved and reused, so the system improves on
+   similar future datasets instead of starting from zero.
+
+6. **It preserves evidence.** The final output includes what was tried, what won,
+   what failed, why the agent routed backward, and which evidence supports each
+   cluster label.
+
+In short: AutoML helps find candidate models. This workflow uses AutoML as a
+skill, then adds agentic diagnosis, semantic interpretation, memory, and human
+validation so the result is not just statistically acceptable but operationally
+usable.

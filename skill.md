@@ -195,6 +195,52 @@ rec.confidence   # float 0–1 — how confident the recommendation is
 
 ---
 
+## `automl_candidate_search` — AutoML Search As A Skill
+
+**File**: `skills/automl_candidate_search.py`
+**Used by**: `ClusteringAgent`
+
+### Purpose
+Runs a bounded tournament over clustering algorithm/k candidates and returns
+evidence for the best option. This makes AutoML-style search a deterministic
+tool inside the agentic workflow: agents decide when to use it, while the skill
+does the reproducible scoring.
+
+### API
+
+```python
+from skills.automl_candidate_search import search_clustering_candidates
+
+result = search_clustering_candidates(
+    X_scaled,
+    algorithms=["kmeans", "hierarchical", "gmm"],
+    k_range=[3, 4, 5, 6, 7, 8, 10, 12],
+    metric="euclidean",
+    max_cluster_size_pct=0.40,
+)
+
+result.best.algorithm
+result.best.k
+result.best.silhouette
+result.best.stability_ari
+result.best.max_cluster_pct
+result.best.composite_score
+```
+
+### Ranking
+Candidates are scored by:
+
+```text
+max(0, silhouette) * 70
++ bootstrap_stability_ari * 25
+- oversized_cluster_penalty
+```
+
+This intentionally optimises for usable clustering rather than one metric:
+separation, repeatability, and cluster-size constraints all count.
+
+---
+
 ## `score_pca` — PCA Importance Scoring
 
 **File**: Implemented inline in `agents/feature_selector.py`

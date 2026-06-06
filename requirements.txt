@@ -18,6 +18,7 @@ ipykernel==7.2.0
 flask==3.0.3
 requests==2.32.3
 scikit-fuzzy==0.5.0
+lightgbm==4.6.0
 
 # Optional — text-clustering modality uses semantic embeddings when present;
 # otherwise the TextPreparer falls back to TF-IDF + TruncatedSVD (scikit-learn,

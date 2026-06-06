@@ -24,8 +24,12 @@ Threshold logic:
 Supported classifier models:
   - random_forest      : robust baseline, handles high-dim, little tuning
   - xgboost            : powerful for tabular data, handles class imbalance
+  - lightgbm           : very fast gradient boosting, excellent for large tabular
   - gradient_boosting  : good for mid-size data, often more accurate than RF
   - logistic_regression: fast, interpretable, best for linearly separable classes
+  - knn                : simple non-parametric, good for small well-separated data
+  - svm                : powerful for high-dimensional data with clear margins
+  - naive_bayes        : extremely fast baseline, surprisingly effective for text
 """
 from __future__ import annotations
 
@@ -35,6 +39,9 @@ import pandas as pd
 
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
@@ -81,6 +88,18 @@ def _build_model(model_name: str):
         except ImportError:
             print('  [Classifier] xgboost not installed — falling back to random_forest')
             return RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
+    elif model_name == 'lightgbm':
+        try:
+            from lightgbm import LGBMClassifier
+            return LGBMClassifier(
+                n_estimators=200,
+                random_state=42,
+                n_jobs=-1,
+                verbosity=-1,
+            )
+        except ImportError:
+            print('  [Classifier] lightgbm not installed — falling back to gradient_boosting')
+            return GradientBoostingClassifier(n_estimators=100, random_state=42)
     elif model_name == 'gradient_boosting':
         return GradientBoostingClassifier(n_estimators=100, random_state=42)
     elif model_name == 'logistic_regression':
@@ -95,6 +114,12 @@ def _build_model(model_name: str):
         except Exception:  # noqa: BLE001
             pass
         return LogisticRegression(**_kwargs)
+    elif model_name == 'knn':
+        return KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
+    elif model_name == 'svm':
+        return SVC(kernel='rbf', C=1.0, gamma='scale', random_state=42, probability=True)
+    elif model_name == 'naive_bayes':
+        return GaussianNB()
     else:
         # Default: random_forest
         return RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
@@ -129,12 +154,15 @@ class ClassifierAgent:
         """
         Ask the LLM to select the best classifier model, or use config setting.
 
-        Returns model name string: 'random_forest', 'xgboost',
-        'gradient_boosting', or 'logistic_regression'.
+        Returns model name string: 'random_forest', 'xgboost', 'lightgbm',
+        'gradient_boosting', 'logistic_regression', 'knn', 'svm', 'naive_bayes'.
         """
+        _VALID_MODELS = {
+            'random_forest', 'xgboost', 'lightgbm', 'gradient_boosting',
+            'logistic_regression', 'knn', 'svm', 'naive_bayes',
+        }
         if config_model and config_model != 'auto':
-            valid = {'random_forest', 'xgboost', 'gradient_boosting', 'logistic_regression'}
-            if config_model in valid:
+            if config_model in _VALID_MODELS:
                 print(f'  [Classifier] Model fixed by config: {config_model}')
                 return config_model
 
@@ -164,23 +192,38 @@ Dataset characteristics:
 
 Available models and their strengths:
   random_forest     : Robust baseline, handles high-dim, little tuning needed.
-                      Good for most situations.
+                      Good for most situations. DEFAULT safe choice.
   xgboost           : Best for tabular data, handles class imbalance well.
                       Slightly slower to train but often more accurate.
+  lightgbm          : Very fast gradient boosting, excellent for large tabular
+                      datasets (n_samples > 20k). Often beats XGBoost on speed.
   gradient_boosting : Good for mid-size data (n_samples < 50k), slower than RF
                       but often more accurate than RF.
   logistic_regression: Fast, interpretable, best for linearly separable classes.
                        Works well when n_features << n_samples.
+  knn               : Simple non-parametric classifier. Good for small datasets
+                      (n_samples < 5k) with well-separated clusters.
+  svm               : Powerful for high-dimensional data (n_features > n_samples).
+                      Good when clusters have clear margins. Slower on large data.
+  naive_bayes       : Extremely fast, good baseline for text data or when
+                      features are roughly independent. Often surprisingly effective.
 
 Guidelines:
-  - If n_samples > 50k and n_features > 100: prefer random_forest or xgboost
-  - If n_classes > 10: prefer random_forest or xgboost (robust to many classes)
-  - If previous model gave F1 < 0.5: try a different model
-  - If n_features > n_samples: prefer logistic_regression
+  - If n_samples > 50k and n_features > 100: prefer random_forest, xgboost, or lightgbm
+  - If n_classes > 10: prefer random_forest, xgboost, or lightgbm (robust to many classes)
+  - If previous model gave F1 < 0.5: try a different model family (e.g. tree → linear)
+  - If n_features > n_samples: prefer svm or logistic_regression
+  - If dataset is text / sparse: prefer naive_bayes or logistic_regression
+  - If n_samples < 5k and clusters look well-separated: try knn
   - Default safe choice: random_forest
 
 Return ONLY a valid JSON object (no markdown, no extra text):
 {{"model": "<model_name>", "reasoning": "<1-2 sentences>"}}"""
+
+        _VALID_MODELS = {
+            'random_forest', 'xgboost', 'lightgbm', 'gradient_boosting',
+            'logistic_regression', 'knn', 'svm', 'naive_bayes',
+        }
 
         try:
             raw = self.bus.ask(
@@ -199,8 +242,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                         break
             resp = json.loads(raw)
             model_choice = resp.get('model', 'random_forest')
-            valid = {'random_forest', 'xgboost', 'gradient_boosting', 'logistic_regression'}
-            if model_choice not in valid:
+            if model_choice not in _VALID_MODELS:
                 model_choice = 'random_forest'
             print(f'  [Classifier] LLM selected model: {model_choice}  ({resp.get("reasoning", "")})')
             return model_choice
