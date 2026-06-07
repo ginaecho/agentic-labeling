@@ -76,7 +76,7 @@ kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
 ```
 ---
 
-## 🖥️ Interactive UI + Adaptive Learning
+## 📊 Interactive UI + Adaptive Learning
 
 The interactive web interface streams real-time agent states, LLM prompt payloads, scoring gate choices, and optimization escalations utilizing Server-Sent Events (SSE).
 
