@@ -76,38 +76,45 @@ kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
 ```
 ---
 
-## Interactive UI + Adaptive Learning
+## 🖥️ Interactive UI + Adaptive Learning (Human-in-the-Loop AI)
 
-The UI streams every agent step, LLM call, gate decision, and escalation over Server-Sent Events.
+The real-time web interface streams every autonomous agent execution state, LLM payload call, quality-gate assessment, and loop escalation directly over **Server-Sent Events (SSE)**. This architectural integration transitions the platform from a passive monitoring view into an active **Human-in-the-Loop (HITL)** optimization framework through two main views:
 
-**Named Clusters tab + Adaptive Memory** — every cluster is an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next run. Every rename, merge, hint, and chat conclusion lands in the **Adaptive Memory drawer** (right side of the topbar) as a prioritised rule; the next pipeline run reads `outputs/user_feedback_log.jsonl` and the Decision Maker prompts adapt.
+* **Named Clusters Tab & Adaptive Memory:** Every generated cohort maps to an interactive UI card. Users can initiate a multi-turn conversation with the specific agent responsible for that cohort to query its mathematical feature weighting. Clicking **Conclude → Propose Action** allows you to rename, merge cohorts, or save permanent structural constraints for future runs. These overrides are instantly written to `outputs/user_feedback_log.jsonl`. On subsequent pipeline runs, the LLM Decision Maker parses these rules as prioritized context—making the adaptive learning loop literal.
 
 ![Named Clusters tab — chat with an agent, conclude, save guidance to Adaptive Memory](docs/screenshots/01_named_clusters.gif)
 
-**Data & Evidence tab** — per-iteration 2-D PCA projection of the clustered data, collapsible feature-engineering builders, orchestrator adaptive-escalation warnings, and an **Explain** button (LLM evidence ledger) that becomes active once iteration evidence is available. Includes **cross-cluster comparison**: an LLM contrasting analysis across all named clusters (not one cluster at a time), cached on the evidence ledger.
+* **Data & Evidence Tab & Cross-Cluster Analysis:** Displays interactive 2-D Principal Component Analysis (PCA) projections of the clustered points, collapsible feature-engineering tracking blocks, and orchestrator-driven step-back warning frames: *"Silhouette=0.142 < target 0.40 — orchestrator will reselect features (or escalate after 3 consecutive misses)"*. Once execution logs are complete, an **Explain** button unlocks an **LLM Evidence Ledger**. This engine hosts an automated **cross-cluster comparative analysis**, caching an LLM synthesis that contrasts patterns across all generated clusters concurrently rather than profiling cohorts in isolation.
 
 ![Data & Evidence tab — per-iteration PCA projection with adaptive-escalation warnings](docs/screenshots/02_data_evidence.gif)
 
-**Case Memory — recall a prior winning recipe** — every successful run is fingerprinted (column set, row count, business purpose) and saved to `outputs/case_memory.json` along with the winning recipe (algorithm, k, vif_threshold, feature focus, min_silhouette) and the outcome (silhouette, CV-F1). On the next run the Decision Maker looks for a match — `exact` or `similar` — and, in interactive mode, pauses the pipeline to ask how to use it:
+### 🧠 Case Memory: Deterministic Recipe Recall
+To accelerate cold starts, successful pipeline executions are fingerprinted by underlying data architecture (column matrices, row limits, and targeted business domains) and appended to `outputs/case_memory.json` along with the winning configuration state (`clustering_algorithm`, `k`, `vif_threshold`, `feature_focus`, `min_silhouette`) and outcome metrics (`silhouette`, `macro-F1`). 
 
-  1. DatasetExaminer finishes profiling.
-  2. Modal: **"🧠 Memory match — reuse the prior winning recipe?"** with recipe + outcome.
-  3. **Reuse** — seed iteration 1 tuning params verbatim; drop conflicting LLM hints.
-  4. **Modify (hint only)** — prior recipe injected into failure-tuning prompts only.
-  5. **Ignore** — fresh run.
-  6. Live tab + `case_memory_decision` event record the choice.
+On sequential executions, the LLM Decision Maker checks for an existing `exact` or `similar` fingerprint match. In active UI mode, it pauses execution following the initial profiling step to prompt the user:
 
-Bypass / headless mode auto-picks **Modify**. Interactive timeout (5 min) also defaults to **Modify**.
+1. **Dataset Examiner** finishes data schema profiling.
+2. An interactive modal surfaces: **"🧠 Memory Match Found — Reuse the prior winning recipe?"** displaying historical configurations and metrics.
+3. **Reuse:** Verbatim injection of historical hyperparameter tuning rules into the active iteration state, dropping conflicting prompt modifiers.
+4. **Modify (Hint Only):** Appends the historical recipe as baseline context solely inside failure-recovery diagnosis loops.
+5. **Ignore:** Fully resets variables for a completely fresh pipeline sweep.
+6. The interactive UI state and a `case_memory_decision` tracking block log the chosen pathway.
+
+*Note: Headless/Bypass mode or an interactive user timeout (5 minutes) automatically defaults execution to the **Modify** pathway.*
 
 ---
 
-## Text Modality (document / article clustering)
+## 📄 Text Modality (Document & Article Clustering)
 
-Same pipeline, routed through `TextPreparerAgent` instead of `FeatureEngineerAgent`:
+The system seamlessly processes unstructured NLP datasets by routing tasks through a dedicated `TextPreparerAgent` instead of the standard tabular `FeatureEngineerAgent`.
 
+### Execution Commands
 ```bash
+# Run unstructured clustering on the benchmark text dataset
 python run_pipeline.py --data data/raw/twenty_newsgroups/twenty_newsgroups.csv
-python run_pipeline.py --data path/to.csv --modality text --text-column text
+
+# Target explicit text parameters on custom payloads
+python run_pipeline.py --data path/to/dataset.csv --modality text --text-column text
 ```
 
 | Stage | Text-mode behaviour |
