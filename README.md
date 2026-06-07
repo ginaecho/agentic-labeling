@@ -1,6 +1,8 @@
-# Agentic Labelling: Automated Cluster Interpretation with a Multi-Agents System
+# Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System
 
-> **The hard part of clustering is not the math — it's the meaning.**
+The hard part of unsupervised clustering is not the mathematics — it's extracting the meaning.
+
+Agentic Clustering & Auto-Labeling is an autonomous machine learning pipeline that uses an LLM-driven multi-agent architecture to automatically cluster datasets, engineer features, interpret the results, and generate human-readable cluster personas. It bridges the gap between raw statistical grouping and actionable data insights.
 
 ## TL;DR
 
