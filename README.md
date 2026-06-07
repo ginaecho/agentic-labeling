@@ -76,7 +76,7 @@ kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
 ```
 ---
 
-## Interactive UI + Adaptive Learning
+## 🖥️ Interactive UI + Adaptive Learning
 
 The interactive web interface streams real-time agent states, LLM prompt payloads, scoring gate choices, and optimization escalations utilizing Server-Sent Events (SSE).
 
@@ -92,7 +92,7 @@ Clicking Conclude → Propose Action allows you to rename, merge, or provide str
 
 ---
 
-## Configuration (`config.yaml`)
+## ⚙️ Configuration (`config.yaml`)
 
 ```yaml
 n_clusters: ~                # null = auto-select k via silhouette optimizer
@@ -107,7 +107,7 @@ All of these are tuned dynamically per-iteration by the Decision Maker — confi
 
 ---
 
-## Outputs & Generated Artifacts
+## 📦 Outputs & Generated Artifacts
 
 All run logs, data metrics, and metadata models persist inside the `outputs/` directory structure:
 
