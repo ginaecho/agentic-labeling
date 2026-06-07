@@ -1,6 +1,6 @@
 # Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System
 
-[![GitHub Stars](https://img.shields.io/github/stars/yourusername/your-repo-name?style=flat-square)](https://github.com/yourusername/your-repo-name)
+[![GitHub stars](https://img.shields.io/github/stars/ginaecho/Agentic_Labelling?style=flat-square)](https://github.com/ginaecho/Agentic_Labelling/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg?style=flat-square)](https://www.python.org/)
 
