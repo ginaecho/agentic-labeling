@@ -70,8 +70,10 @@ CLI Flags:
 ```
 
 💡 Optional Demo Dataset: Test the adaptive learning loop out of the box using Kaggle's Fraud Detection data:
-kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
 
+```bash
+kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
+```
 ---
 
 ## Interactive UI + Adaptive Learning
