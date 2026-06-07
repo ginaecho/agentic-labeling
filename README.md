@@ -52,6 +52,23 @@ pip install -r requirements.txt
 # Configure your environment variables
 export LLM_API_KEY="sk-ant-..."        # or add to .env
 ```
+
+Run the Pipeline
+Executing the script automatically triggers the pipeline and provisions the web interface in your default browser:
+
+Bash
+python run_pipeline.py
+CLI Flags:
+
+--no-ui: Runs the agentic pipeline in headless mode directly inside the terminal.
+
+--ui-port 5090: Modifies the default web UI hosting port.
+
+--data path/to/dataset.csv: Dynamically overrides the default configuration dataset path.
+
+💡 Optional Demo Dataset: Test the adaptive learning loop out of the box using Kaggle's Fraud Detection data:
+kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
+
 ---
 
 ## Interactive UI + Adaptive Learning
