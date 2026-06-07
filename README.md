@@ -78,7 +78,9 @@ kaggle datasets download -d kartik2112/fraud-detection -p data/raw --unzip
 
 ## Interactive UI + Adaptive Learning
 
-The UI streams every agent step, LLM call, gate decision, and escalation over Server-Sent Events. Two things make it more than a viewer:
+The interactive web interface streams real-time agent states, LLM prompt payloads, scoring gate choices, and optimization escalations utilizing Server-Sent Events (SSE).
+
+Clicking Conclude → Propose Action allows you to rename, merge, or provide structural constraints for future runs. Feedback logs directly to outputs/user_feedback_log.jsonl. On subsequent runs, the LLM Decision Maker parses these rules to adaptively guide the pipeline.
 
 **Named Clusters tab + Adaptive Memory** — every cluster is an editable card. Open one and start a multi-turn conversation with the agent about why it picked those features, then **Conclude → propose action** to rename, merge, or save guidance for the next run. Every rename, merge, hint, and chat conclusion lands in the **Adaptive Memory drawer** (right side of the topbar) as a prioritised rule; the next pipeline run reads `outputs/user_feedback_log.jsonl` and the Decision Maker prompts adapt — that is the adaptive-learning loop, made literal.
 
@@ -105,14 +107,23 @@ All of these are tuned dynamically per-iteration by the Decision Maker — confi
 
 ---
 
-## Outputs
+## Outputs & Generated Artifacts
 
-Written to `outputs/` after each run:
+All run logs, data metrics, and metadata models persist inside the `outputs/` directory structure:
 
-- `personas.json` · `persona_summary.txt` · `persona_metrics.csv` — named clusters + per-cluster distinguishing features
-- `classifier_metrics.json` — CV accuracy, macro-F1, per-class F1, top feature importances
-- `cluster_profiles.json` · `cluster_lineage.json` · `silhouette_curve.json` — cluster stats, deepening tree, k-curve
-- `pipeline_events.jsonl` · `agents_conversation.txt` — every event + every LLM prompt/response
-- `user_feedback_log.jsonl` — rules from the UI that adapt the next run
+* **Interpretation Data:** `personas.json` · `persona_summary.txt` · `persona_metrics.csv` — Features distinguishing each cluster and generated semantic personas.
+* **Validation Statistics:** `classifier_metrics.json` — Cross-validation accuracy, macro-$F_1$, and feature importance arrays.
+* **Clustering Lineage:** `cluster_profiles.json` · `cluster_lineage.json` · `silhouette_curve.json` — Historical cluster topology and evaluation curves.
+* **Agent Diagnostics:** `pipeline_events.jsonl` · `agents_conversation.txt` — Full raw prompts, multi-agent conversation history, and chronological execution streams for deep auditability.
+* **Human Feedback Loops:** `user_feedback_log.jsonl` — Adaptive memory constraints and overrides curated directly from real-time UI interactions.
 
-If 10 iterations finish without any result passing all gates, the pipeline falls into **best-effort mode**: it takes the highest-silhouette clustering, force-names it, runs the classifier, and saves with `status='best_effort'` so a usable result is always delivered.
+> ⚠️ **Best-Effort Fallback Mode:** If 10 successive execution loops fail to fulfill every target quality gate, the pipeline shifts into a highly stable **Best-Effort Mode**. It surfaces the highest-scoring historical silhouette run, auto-labels it, builds the proxy validation classifier, and appends `status='best_effort'` to the final payload so the pipeline execution never leaves you empty-handed.
+
+---
+
+## 🛠️ Tech Stack & Indexing Keywords
+
+* **Core Machine Learning:** `scikit-learn`, `xgboost`, `numpy`, `pandas`
+* **Agentic Orchestration:** Structured Multi-Agent Framework, LLM Decision Making Router
+* **UI & Visualization:** Server-Sent Events (SSE), TailwindCSS, 2D PCA Projection Engines
+* **Target Domains:** Unsupervised Machine Learning, Automated Auto-Labeling, Cluster Exploratory Data Analysis (EDA), Human-in-the-Loop AI, Hyperparameter Optimization
