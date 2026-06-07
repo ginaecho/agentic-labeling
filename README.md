@@ -129,42 +129,36 @@ python run_pipeline.py --data path/to/dataset.csv --modality text --text-column 
 
 ---
 
-## Configuration (`config.yaml`)
+## ⚙️ Configuration (`config.yaml`)
 
 ```yaml
-n_clusters: ~
-clustering_algorithm: auto
-classifier_model: auto
-max_cluster_size_pct: 0.40
-silhouette_target: 0.5
-persona_tone: easy
-modality: auto              # auto | tabular | text
-text_column: ~              # for text modality
-text_vectorizer: auto       # auto | tfidf_svd | transformer
+n_clusters: ~                # null = auto-select k via silhouette optimizer
+clustering_algorithm: auto   # auto | kmeans | hierarchical | dbscan | gmm | fuzzy_cmeans
+classifier_model: auto       # auto | random_forest | xgboost | gradient_boosting | logistic_regression
+max_cluster_size_pct: 0.40   # split any cluster above this share
+silhouette_target: 0.5       # starts here; auto-relaxes by 0.1 after 3 consecutive misses
+persona_tone: easy           # easy | professional | data-driven | creative
 ```
 
-All values are starting points — the Decision Maker tunes them per iteration.
+All of these are tuned dynamically per-iteration by the Decision Maker — config values are starting points, not locks.
 
 ---
 
-## Outputs
+## 📦 Outputs & Generated Artifacts
 
-Written to `outputs/` after each run:
+All run logs, data metrics, and metadata models persist inside the `outputs/` directory structure:
 
-- `personas.json` · `persona_summary.txt` · `persona_metrics.csv` — named clusters + distinguishing features
-- `classifier_metrics.json` — CV accuracy, macro-F1, per-class F1, importances
-- `cluster_profiles.json` · `cluster_lineage.json` · `silhouette_curve.json` — cluster stats, deepening tree, k-curve
-- `pipeline_events.jsonl` · `agents_conversation.txt` — events + LLM prompt/response log
-- `user_feedback_log.jsonl` — UI rules that adapt the next run
-- `case_memory.json` — winning recipes for Case Memory recall (Reuse / Modify / Ignore)
-- `data/processed/engineered_features.parquet` — tabular feature matrix (when starting from CSV)
-- `data/processed/text_embeddings.parquet` — document embeddings (text mode)
+* **Interpretation Data:** `personas.json` · `persona_summary.txt` · `persona_metrics.csv` — Features distinguishing each cluster and generated semantic personas. `data/processed/engineered_features.parquet` — tabular feature matrix (when starting from CSV) `data/processed/text_embeddings.parquet` — document embeddings (text mode)
+* **Validation Statistics:** `classifier_metrics.json` — Cross-validation accuracy, macro-$F_1$, and feature importance arrays.
+* **Clustering Lineage:** `cluster_profiles.json` · `cluster_lineage.json` · `silhouette_curve.json` — Historical cluster topology and evaluation curves. 
+* **Agent Diagnostics:** `pipeline_events.jsonl` · `agents_conversation.txt` — Full raw prompts, multi-agent conversation history, and chronological execution streams for deep auditability.
+* **Human Feedback Loops:** `user_feedback_log.jsonl` — Adaptive memory constraints and overrides curated directly from real-time UI interactions.
 
-If 10 iterations finish without passing all gates, the pipeline enters **best-effort mode**: highest-silhouette clustering, force-named personas, classifier run, `status='best_effort'`.
+> ⚠️ **Best-Effort Fallback Mode:** If 10 successive execution loops fail to fulfill every target quality gate, the pipeline shifts into a highly stable **Best-Effort Mode**. It surfaces the highest-scoring historical silhouette run, auto-labels it, builds the proxy validation classifier, and appends `status='best_effort'` to the final payload so the pipeline execution never leaves you empty-handed.
 
 ---
 
-## Skills
+## 🛠️ Skills
 
 | Skill | File | Used by |
 |-------|------|---------|
@@ -178,7 +172,7 @@ If 10 iterations finish without passing all gates, the pipeline enters **best-ef
 
 ---
 
-## Appendix: Agentic Workflow vs AutoML
+## 📑 Appendix: Agentic Workflow vs AutoML
 
 AutoML automates model selection: it searches preprocessing choices, algorithms,
 hyperparameters, and validation metrics. This workflow uses that idea, but treats
@@ -204,18 +198,14 @@ for a business decision.
 
 The Clusterer now has an AutoML-as-skill candidate tournament:
 
-```text
+```plaintext
 skills/automl_candidate_search.py
 ```
 
 When `clustering_algorithm: auto` and `n_clusters` is unset, the skill evaluates
 a bounded set of algorithm/k candidates and ranks them by:
 
-```text
-max(0, silhouette) * 70
-+ bootstrap_stability_ari * 25
-- oversized_cluster_penalty
-```
+$$\text{Candidate Score} = \max(0, \text{Silhouette}) \cdot 70 + \text{Bootstrap Stability (ARI)} \cdot 25 - \text{Oversized Cluster Penalty}$$
 
 The agent uses the winning candidate as evidence-backed input to the normal
 clustering, profiling, naming, and validation path. This keeps brute-force search
@@ -252,3 +242,13 @@ In short: AutoML helps find candidate models. This workflow uses AutoML as a
 skill, then adds agentic diagnosis, semantic interpretation, memory, and human
 validation so the result is not just statistically acceptable but operationally
 usable.
+
+---
+
+## 🧬 Tech Stack & Indexing Keywords
+
+* **Core Machine Learning:** `scikit-learn`, `xgboost`, `numpy`, `pandas`
+* **Agentic Orchestration:** Structured Multi-Agent Framework, LLM Decision Making Router
+* **UI & Visualization:** Server-Sent Events (SSE), TailwindCSS, 2D PCA Projection Engines
+* **Target Domains:** Unsupervised Machine Learning, Automated Auto-Labeling, Cluster Exploratory Data Analysis (EDA), Human-in-the-Loop AI, Hyperparameter Optimization
+
