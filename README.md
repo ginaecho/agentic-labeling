@@ -112,12 +112,12 @@ All of these are tuned dynamically per-iteration by the Decision Maker — confi
 All run logs, data metrics, and metadata models persist inside the `outputs/` directory structure:
 
 * **Interpretation Data:** `personas.json` · `persona_summary.txt` · `persona_metrics.csv` — Features distinguishing each cluster and generated semantic personas.
-* **Validation Statistics:** `classifier_metrics.json` — Cross-validation accuracy, macro-$F_1$, and feature importance arrays.
+* **Validation Statistics:** `classifier_metrics.json` — Cross-validation accuracy, macro- $F_1$, and feature importance arrays.
 * **Clustering Lineage:** `cluster_profiles.json` · `cluster_lineage.json` · `silhouette_curve.json` — Historical cluster topology and evaluation curves.
 * **Agent Diagnostics:** `pipeline_events.jsonl` · `agents_conversation.txt` — Full raw prompts, multi-agent conversation history, and chronological execution streams for deep auditability.
 * **Human Feedback Loops:** `user_feedback_log.jsonl` — Adaptive memory constraints and overrides curated directly from real-time UI interactions.
 
-> ⚠️ **Best-Effort Fallback Mode:** If 10 successive execution loops fail to fulfill every target quality gate, the pipeline shifts into a highly stable **Best-Effort Mode**. It surfaces the highest-scoring historical silhouette run, auto-labels it, builds the proxy validation classifier, and appends `status='best_effort'` to the final payload so the pipeline execution never leaves you empty-handed.
+> ⚠️ **Best-Effort Fallback Mode:** During the input of user intent, you choose the max iteration N. If N successive execution loops fail to fulfill every target quality gate, the pipeline shifts into a **Best-Effort Mode**. It surfaces the highest-scoring historical silhouette run, auto-labels it, builds the proxy validation classifier, and appends `status='best_effort'` to the final payload so the pipeline execution never leaves you empty-handed.
 
 ---
 
