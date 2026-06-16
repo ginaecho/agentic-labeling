@@ -9,6 +9,13 @@
 # Can also be overridden at runtime with: python run_pipeline.py --data <path>
 dataset_path: ~
 
+# ── LLM resilience ───────────────────────────────────────────────────────────
+# Max attempts for each LLM call before giving up. Transient API failures
+# (HTTP 500/502/503/504, 529 overloaded, 429 rate-limit, connection/timeout)
+# are retried with exponential backoff so a momentary blip doesn't kill a long
+# pipeline run. Real errors (e.g. 400 bad request, 401 auth) are NOT retried.
+llm_max_retries: 5
+
 # ── Data cleaning (column sanitisation at load) ──────────────────────────────
 # Wide, sparse exports (e.g. a 150-column "features" CSV where 60+ columns are
 # ~99% null and 50+ are constant) otherwise stall the pipeline: NaNs crash the

@@ -461,12 +461,52 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
                 )
 
             t0 = time.perf_counter()
-            resp = self.client.messages.create(
-                model='claude-sonnet-4-6',
-                max_tokens=max_tokens,
-                system=system_ctx,
-                messages=[{'role': 'user', 'content': prompt}],
+            # A transient API failure (500 internal error, 502/503/504, 529
+            # overloaded, 429 rate-limit, connection/timeout) must not kill a
+            # long pipeline run. Retry with exponential backoff; re-raise real
+            # errors (e.g. 400 bad request, 401 auth) immediately.
+            max_attempts = max(1, int(self.config.get('llm_max_retries', 5)))
+            _RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
+            _transient = (
+                anthropic.InternalServerError,
+                anthropic.RateLimitError,
+                anthropic.APITimeoutError,
+                anthropic.APIConnectionError,
             )
+            resp = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    resp = self.client.messages.create(
+                        model='claude-sonnet-4-6',
+                        max_tokens=max_tokens,
+                        system=system_ctx,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    )
+                    break
+                except anthropic.APIError as e:
+                    status = getattr(e, 'status_code', None)
+                    is_transient = isinstance(e, _transient) or status in _RETRYABLE_STATUS
+                    if not is_transient or attempt >= max_attempts:
+                        kind = f"{type(e).__name__}{f' {status}' if status else ''}"
+                        print(f"  [Orchestrator] LLM call failed ({kind}) "
+                              f"after {attempt} attempt(s) — giving up.")
+                        try:
+                            self.bus.emit('llm_call_failed', agent=agent, purpose=purpose,
+                                          error=kind, attempts=attempt, category=category)
+                        except Exception:
+                            pass
+                        raise
+                    delay = min(2.0 ** (attempt - 1), 30.0)
+                    kind = f"{type(e).__name__}{f' {status}' if status else ''}"
+                    print(f"  [Orchestrator] Transient LLM error ({kind}); "
+                          f"retry {attempt}/{max_attempts - 1} in {delay:.0f}s...")
+                    try:
+                        self.bus.emit('llm_call_retry', agent=agent, purpose=purpose,
+                                      error=kind, attempt=attempt, delay_s=delay,
+                                      category=category)
+                    except Exception:
+                        pass
+                    time.sleep(delay)
             elapsed = round(time.perf_counter() - t0, 2)
             self._llm_calls.append({
                 'agent':         agent,
