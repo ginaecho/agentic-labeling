@@ -113,6 +113,51 @@ pairs = flag_high_correlation(df, threshold=0.85)
 
 ---
 
+## `data_cleaner` — Column Sanitisation for Wide / Sparse Tables
+
+**File**: `skills/data_cleaner.py`
+**Used by**: `Orchestrator` (at load, both paths), `FeatureSelectionAgent` (imputation)
+
+### Purpose
+Prunes columns that carry no usable clustering signal BEFORE any heavy math
+runs, then optionally imputes the remaining gaps. A raw "features" export is
+often wide and sparse (e.g. 150+ columns, 60+ ~99% null, 50+ constant); feeding
+that straight in either crashes `StandardScaler`/PCA on NaN or stalls the VIF
+gate on rank-deficient columns.
+
+### API
+
+```python
+from skills.data_cleaner import drop_low_value_columns, impute_missing, sanitize
+
+cleaned, report = drop_low_value_columns(
+    df,
+    max_null_frac=0.5,      # drop columns >50% null
+    drop_constant=True,     # drop zero-variance columns
+    drop_duplicate=True,    # drop duplicate column names (keep first)
+    protect_cols=['_row_id'],
+)
+# report: dropped_all_null, dropped_high_null [[name, frac]], dropped_constant,
+#         dropped_duplicate, n_cols_before, n_cols_after, n_dropped
+
+filled, imp = impute_missing(df, strategy='median')   # numeric NaNs only
+cleaned, rep = sanitize(df, max_null_frac=0.5, impute='median')  # both steps
+```
+
+### Defaults (config.yaml: `data_cleaning`)
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `enabled` | `true` | Master switch for the load-time prune |
+| `max_null_frac` | `0.5` | Drop columns more than this fraction empty |
+| `drop_constant` | `true` | Drop single-unique-value columns |
+
+Imputation is NOT applied to the raw-CSV path (median-filling a raw measurement
+would distort FeatureEngineer's sums/means); FeatureSelector imputes its own
+NaNs just before scaling/PCA/VIF.
+
+---
+
 ## `silhouette_optimizer` — Data-Driven Cluster Count Selection
 
 **File**: `skills/silhouette_optimizer.py`

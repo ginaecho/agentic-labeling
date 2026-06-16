@@ -9,6 +9,18 @@
 # Can also be overridden at runtime with: python run_pipeline.py --data <path>
 dataset_path: ~
 
+# ── Data cleaning (column sanitisation at load) ──────────────────────────────
+# Wide, sparse exports (e.g. a 150-column "features" CSV where 60+ columns are
+# ~99% null and 50+ are constant) otherwise stall the pipeline: NaNs crash the
+# scaler/PCA in feature selection, and constant/rank-deficient columns slow the
+# VIF gate. The Orchestrator prunes these once, at load, for BOTH the raw-CSV
+# and pre-engineered-parquet paths. What was dropped is printed and emitted on
+# the bus (Evidence tab) so the decision is fully visible.
+data_cleaning:
+  enabled: true          # set false to feed the raw table through unchanged
+  max_null_frac: 0.5     # drop any column more than this fraction empty (0.5 = >50% null)
+  drop_constant: true    # drop zero-variance columns (a single unique non-null value)
+
 # ── Data modality ────────────────────────────────────────────────────────────
 # What kind of data is being clustered.
 #   auto     — detect automatically (text if a long free-text column is found)
@@ -120,6 +132,16 @@ ae_bottleneck_cap: 32
 # is just an upper bound. Lower values make feature selection faster;
 # raise it if the AE convergence warning appears and you want more accuracy.
 ae_max_iter: 200
+
+# High-dimensionality guard for the VIF gate.
+# The VIF gate is O(rounds × cols × OLS), so a wide DENSE feature matrix (many
+# real, varying columns) can make it slow. When the matrix has more columns
+# than this, FeatureSelector first keeps only the top-N features by combined
+# PCA + autoencoder importance, THEN runs VIF on that bounded set. Real feature
+# names are preserved (unlike a PCA projection), so the LLM still selects
+# interpretable columns. Most engineered matrices (~60–150 cols) never hit this.
+# Set to 0 (or null) to disable the cap.
+max_features_for_vif: 150
 
 # ── Classifier ────────────────────────────────────────────────────────────────
 

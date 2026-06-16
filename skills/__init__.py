@@ -8,6 +8,7 @@ from skills.orchestrator_bus import OrchestratorBus, OrchestratorMessage
 from skills.vif_checker import compute_vif, remove_high_vif, flag_high_correlation
 from skills.silhouette_optimizer import optimize_k, SilhouetteResult
 from skills.algo_recommender import recommend_algorithm, AlgoRecommendation
+from skills.data_cleaner import drop_low_value_columns, impute_missing, sanitize
 
 __all__ = [
     # Bus
@@ -17,6 +18,10 @@ __all__ = [
     "compute_vif",
     "remove_high_vif",
     "flag_high_correlation",
+    # Data cleaning
+    "drop_low_value_columns",
+    "impute_missing",
+    "sanitize",
     # Silhouette
     "optimize_k",
     "SilhouetteResult",

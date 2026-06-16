@@ -69,6 +69,7 @@ class FeatureSelectionAgent:
         corr_threshold: float = 0.85,
         ae_bottleneck_cap: int = 32,
         ae_max_iter: int = 200,
+        max_features_for_vif: int = 150,
     ):
         # FeatureSelectionAgent owns its ML skills (PCA, AE, VIF).
         # LLM reasoning is requested through the bus → Orchestrator.
@@ -77,6 +78,13 @@ class FeatureSelectionAgent:
         self.corr_threshold = corr_threshold
         self.ae_bottleneck_cap = ae_bottleneck_cap
         self.ae_max_iter = ae_max_iter
+        # Generic high-dimensionality guard: the VIF gate is O(rounds × cols ×
+        # OLS), so when a DENSE matrix has more than this many columns we first
+        # keep only the top-N features by combined PCA+AE importance, then run
+        # VIF on that bounded set. Feature identity is preserved (unlike a PCA
+        # projection) so the LLM still selects real, interpretable columns.
+        # Set to 0/None to disable the cap.
+        self.max_features_for_vif = max_features_for_vif
 
     def run(
         self,
@@ -149,6 +157,25 @@ class FeatureSelectionAgent:
             X[col] = np.log1p(X[col])
 
         X = X.select_dtypes(include=[np.number])
+
+        # ── Defensive NaN handling ─────────────────────────────────────────────
+        # StandardScaler / PCA / MLPRegressor / the VIF OLS gate all reject NaN.
+        # The orchestrator already prunes all-null and mostly-null columns at
+        # load, but features can still arrive with sparse gaps (e.g. a parquet
+        # loaded directly, or engineered ratios). Drop any fully-empty column
+        # that slipped through, then median-impute the rest so the math below
+        # never crashes.
+        from skills.data_cleaner import impute_missing
+        # ±inf (divide-by-zero ratios) is as fatal as NaN — treat it as missing.
+        X = X.replace([np.inf, -np.inf], np.nan)
+        all_nan_cols = [c for c in X.columns if X[c].isna().all()]
+        if all_nan_cols:
+            print(f'  [FeatureSelector] Dropping {len(all_nan_cols)} all-NaN/all-inf column(s) before scaling.')
+            X = X.drop(columns=all_nan_cols)
+        if X.isna().any().any():
+            X, _imp = impute_missing(X, strategy='median', verbose=False)
+            print(f'  [FeatureSelector] Median-imputed NaN/inf in {len(_imp["imputed"])} column(s).')
+
         feature_names = list(X.columns)
         n_features = len(feature_names)
 
@@ -190,10 +217,27 @@ class FeatureSelectionAgent:
         combined = 0.5 * _normalise(pca_score) + 0.5 * _normalise(recon_error)
         ranked_idx = np.argsort(combined)[::-1]  # highest first
 
-        # ── Step 5: VIF gate ───────────────────────────────────────────────────
+        # ── Step 4.5: High-dimensionality prefilter (generic) ──────────────────
+        # The VIF gate is O(rounds × cols × OLS); on a wide DENSE matrix that
+        # dominates the runtime. When there are more than max_features_for_vif
+        # columns, keep only the top-N by combined PCA+AE importance BEFORE the
+        # gate. This bounds VIF cost for ANY dataset while preserving real
+        # feature names so the LLM still selects interpretable columns.
         import pandas as pd
-        X_for_vif = pd.DataFrame(X_scaled, columns=feature_names)
+        cap = self.max_features_for_vif
+        removed_by_prefilter: list[str] = []
+        if cap and n_features > cap:
+            keep_idx = ranked_idx[:cap]
+            keep_names = [feature_names[i] for i in keep_idx]
+            keep_set = set(keep_names)
+            removed_by_prefilter = [f for f in feature_names if f not in keep_set]
+            print(f'  High-dim prefilter: {n_features} → {cap} features '
+                  f'(top by PCA+AE importance) before VIF gate.')
+            X_for_vif = pd.DataFrame(X_scaled[:, keep_idx], columns=keep_names)
+        else:
+            X_for_vif = pd.DataFrame(X_scaled, columns=feature_names)
 
+        # ── Step 5: VIF gate ───────────────────────────────────────────────────
         print(f'  Running VIF gate (threshold={effective_vif})...')
         X_clean, removed_by_vif = remove_high_vif(
             X_for_vif,
@@ -203,7 +247,9 @@ class FeatureSelectionAgent:
         )
         clean_feature_names = list(X_clean.columns)
         n_after_vif = len(clean_feature_names)
-        print(f'  After VIF gate: {n_after_vif} features  (removed {len(removed_by_vif)})')
+        print(f'  After VIF gate: {n_after_vif} features  (removed {len(removed_by_vif)}'
+              + (f', prefiltered {len(removed_by_prefilter)}' if removed_by_prefilter else '')
+              + ')')
 
         # Failure mode per docs/agents/feature_selector.md: < 10 features survive VIF → blocked
         if n_after_vif < 10:
@@ -425,6 +471,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                 issues=issues,
                 metrics={
                     "n_input_features": n_features,
+                    "n_prefiltered_high_dim": len(removed_by_prefilter),
                     "n_after_vif": n_after_vif,
                     "n_removed_by_vif": len(removed_by_vif),
                     "n_selected": len(selected),

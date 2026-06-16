@@ -505,6 +505,7 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             self.bus,
             ae_bottleneck_cap=config.get('ae_bottleneck_cap', 32),
             ae_max_iter=config.get('ae_max_iter', 200),
+            max_features_for_vif=config.get('max_features_for_vif', 150),
         )
         self.cluster_agent          = ClusteringAgent(config, self.bus)
         self.naming_agent           = PersonaNamingAgent(self.bus)
@@ -513,6 +514,59 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
         # Telemetry
         self._timings: dict[str, list[float]] = defaultdict(list)
         self._pipeline_start: float = 0.0
+
+    def _sanitize_loaded_df(self, df, *, source_label: str, user_intent=None):
+        """Drop low-value columns from a freshly-loaded dataset before any agent
+        touches it.
+
+        Wide, sparse exports (e.g. a 150-column feature CSV where 60+ columns are
+        ~99% null and 50+ are constant) otherwise stall the pipeline: NaNs crash
+        StandardScaler/PCA in FeatureSelector, and constant/rank-deficient columns
+        slow the VIF gate. Pruning them here is the single, visible place that
+        guards every downstream stage.
+
+        Controlled by config['data_cleaning']:
+          enabled       (bool, default True)
+          max_null_frac (float, default 0.5)  — drop columns more than this empty
+          drop_constant (bool, default True)  — drop zero-variance columns
+
+        Imputation is intentionally NOT done here: the raw-CSV path feeds
+        FeatureEngineer (which aggregates raw events, so a median-filled raw
+        measurement would distort sums/means). FeatureSelector imputes its own
+        NaNs just before the math that needs it.
+        """
+        from skills.data_cleaner import drop_low_value_columns
+
+        dc_cfg = dict(self.config.get('data_cleaning') or {})
+        if dc_cfg.get('enabled', True) is False:
+            return df
+
+        protect = ['_row_id']
+        text_col = getattr(user_intent, 'text_column', None) if user_intent else None
+        if text_col:
+            protect.append(text_col)
+
+        cleaned, report = drop_low_value_columns(
+            df,
+            max_null_frac=float(dc_cfg.get('max_null_frac', 0.5)),
+            drop_constant=bool(dc_cfg.get('drop_constant', True)),
+            protect_cols=protect,
+            verbose=False,
+        )
+        if report['n_dropped'] > 0:
+            print(
+                f"  [Orchestrator] Data cleaning ({source_label}): "
+                f"{report['n_cols_before']} → {report['n_cols_after']} columns "
+                f"(dropped {len(report['dropped_all_null'])} all-null, "
+                f"{len(report['dropped_high_null'])} >{report['max_null_frac']:.0%}-null, "
+                f"{len(report['dropped_constant'])} constant, "
+                f"{len(report['dropped_duplicate'])} duplicate)."
+            )
+            try:
+                self.bus.emit('data_cleaning', source=source_label, **report)
+            except Exception:  # noqa: BLE001
+                pass
+        return cleaned
 
     def run(
         self,
@@ -686,6 +740,9 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             print(f'\nLoading raw transaction data: {raw_data_path}')
             full_raw_df = _load_df(raw_data_path)
             print(f'  {len(full_raw_df):,} transactions × {len(full_raw_df.columns)} columns')
+            full_raw_df = self._sanitize_loaded_df(
+                full_raw_df, source_label='raw_csv', user_intent=state.user_intent,
+            )
             # Subsample for DatasetExaminer only (it only needs schema + stats)
             if len(full_raw_df) > 50_000:
                 raw_df = full_raw_df.sample(50_000, random_state=42)
@@ -701,6 +758,9 @@ CLASSIFIER ALGORITHMS KNOWLEDGE:
             if 'cluster' in features_df.columns:
                 features_df = features_df.drop(columns=['cluster'])
             print(f'  {len(features_df)} customers × {len(features_df.columns)} features')
+            features_df = self._sanitize_loaded_df(
+                features_df, source_label='pre_engineered', user_intent=state.user_intent,
+            )
             raw_df = features_df
             full_raw_df = None
 
