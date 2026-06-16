@@ -103,6 +103,7 @@ class ClassifierResult:
     iteration: int
     model: Optional[Any] = None            # fitted RandomForestClassifier
     label_encoder: Optional[Any] = None    # fitted LabelEncoder
+    cv_kappa: float = 0.0                  # Cohen's kappa (classifier vs cluster labels)
 
 
 @dataclass

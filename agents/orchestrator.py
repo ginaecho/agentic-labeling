@@ -103,6 +103,7 @@ def _display_checkpoint_summary(personas: dict, cluster_result, classifier_resul
         print(f'CV accuracy        : {classifier_result.cv_accuracy:.4f}')
         print(f'CV F1 (macro)      : {classifier_result.cv_f1_macro:.4f}')
         print(f'CV F1 (weighted)   : {classifier_result.cv_f1_weighted:.4f}')
+        print(f"CV Cohen's kappa   : {getattr(classifier_result, 'cv_kappa', 0.0):.4f}")
     else:
         print('CV metrics         : (classifier failed this iteration — no F1 available)')
     print()
@@ -146,6 +147,7 @@ def _display_checkpoint_summary(personas: dict, cluster_result, classifier_resul
         'cv_accuracy': float(classifier_result.cv_accuracy) if classifier_result is not None else None,
         'cv_f1_macro': float(classifier_result.cv_f1_macro) if classifier_result is not None else None,
         'cv_f1_weighted': float(classifier_result.cv_f1_weighted) if classifier_result is not None else None,
+        'cv_kappa': float(getattr(classifier_result, 'cv_kappa', 0.0)) if classifier_result is not None else None,
         'personas': persona_rows,
         'worst_personas': [{'name': n, 'cv_f1': float(s)} for n, s in worst],
         'agent_log_summary': log_summary[:4000],
@@ -309,6 +311,7 @@ def save_outputs(cluster_result, naming_result, classifier_result, bus: Orchestr
         'cv_accuracy':     classifier_result.cv_accuracy,
         'cv_f1_macro':     classifier_result.cv_f1_macro,
         'cv_f1_weighted':  classifier_result.cv_f1_weighted,
+        'cv_kappa':        getattr(classifier_result, 'cv_kappa', 0.0),
         'per_class_f1':    classifier_result.per_class_f1,
         'top20_features':  dict(
             sorted(classifier_result.feature_importances.items(),

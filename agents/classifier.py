@@ -47,6 +47,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
+    cohen_kappa_score,
     classification_report,
 )
 
@@ -343,6 +344,12 @@ Return ONLY a valid JSON object (no markdown, no extra text):
         cv_accuracy    = float(accuracy_score(y, y_pred_cv))
         cv_f1_macro    = float(f1_score(y, y_pred_cv, average='macro',    zero_division=0))
         cv_f1_weighted = float(f1_score(y, y_pred_cv, average='weighted', zero_division=0))
+        # Cohen's kappa: agreement between the classifier and the cluster labels,
+        # corrected for the agreement expected by chance. Reported (not gated)
+        # alongside F1 — under imbalanced cluster sizes a high accuracy can be
+        # mostly chance, which κ exposes (κ≈0 → no better than guessing prevalence;
+        # κ→1 → crisp, well-separated clusters).
+        cv_kappa       = float(cohen_kappa_score(y, y_pred_cv))
 
         # Per-class F1
         f1_per_class = f1_score(y, y_pred_cv, average=None, zero_division=0)
@@ -354,6 +361,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
         print(f'  CV accuracy    : {cv_accuracy:.4f}')
         print(f'  CV F1 (macro)  : {cv_f1_macro:.4f}  (threshold ≥ {self.F1_THRESHOLD})')
         print(f'  CV F1 (weighted): {cv_f1_weighted:.4f}')
+        print(f"  CV Cohen's κ   : {cv_kappa:.4f}  (chance-corrected agreement)")
         print(f'  Per-class F1:')
         for name, score in sorted(per_class_f1.items(), key=lambda x: x[1]):
             bar = '█' * int(score * 20)
@@ -387,6 +395,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                 cv_accuracy=cv_accuracy,
                 cv_f1_macro=cv_f1_macro,
                 cv_f1_weighted=cv_f1_weighted,
+                cv_kappa=cv_kappa,
                 feature_importances=importances,
                 per_class_f1=per_class_f1,
                 reasoning=f'CV macro-F1 {cv_f1_macro:.3f} ≥ threshold {self.F1_THRESHOLD}.',
@@ -417,6 +426,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                     metrics={
                         "cv_f1_macro": round(cv_f1_macro, 4),
                         "cv_accuracy": round(cv_accuracy, 4),
+                        "cv_kappa": round(cv_kappa, 4),
                         "n_classes": n_classes,
                         "model_name": model_name,
                     },
@@ -461,6 +471,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
                 metrics={
                     "cv_f1_macro": round(cv_f1_macro, 4),
                     "cv_accuracy": round(cv_accuracy, 4),
+                    "cv_kappa": round(cv_kappa, 4),
                     "n_classes": n_classes,
                     "model_name": model_name,
                     "llm_action": action,
@@ -474,6 +485,7 @@ Return ONLY a valid JSON object (no markdown, no extra text):
             cv_accuracy=cv_accuracy,
             cv_f1_macro=cv_f1_macro,
             cv_f1_weighted=cv_f1_weighted,
+            cv_kappa=cv_kappa,
             feature_importances=importances,
             per_class_f1=per_class_f1,
             reasoning=reasoning,
