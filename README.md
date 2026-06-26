@@ -26,6 +26,7 @@
 - [Tech Stack & Keywords](#-tech-stack--indexing-keywords)
 - [License](#-license)
 - [Contributing](#-contributing)
+- [Security & Support](#-security--support)
 
 ---
 
@@ -57,6 +58,15 @@ To optimize performance and handle bottlenecks, tasks are delegated to specializ
 ---
 
 ## 🚀 Quick Start
+
+### Prerequisites
+
+- **Python 3.10+**
+- An **Anthropic API key** — the agents and LLM Decision Maker call Anthropic Claude
+  (default model: `claude-sonnet-4-6`) via the official `anthropic` Python SDK.
+  Get a key at <https://console.anthropic.com/>.
+- *(Optional)* The text-clustering modality uses `sentence-transformers` embeddings
+  when installed; otherwise it falls back to TF-IDF + TruncatedSVD and runs fully offline.
 
 ### Installation
 
@@ -283,4 +293,11 @@ You are free to use, copy, modify, merge, publish, distribute, sublicense, and s
 ## 🤝 Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before opening an issue or pull request.
+
+---
+
+## 🔒 Security & Support
+
+- **Security:** To report a vulnerability, see [SECURITY.md](SECURITY.md) — please do not open a public issue for security matters.
+- **Support:** For questions, bugs, or feature requests, see [SUPPORT.md](SUPPORT.md).
 
