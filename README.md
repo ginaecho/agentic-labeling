@@ -43,8 +43,8 @@ To optimize performance and handle bottlenecks, tasks are delegated to specializ
 
 ```bash
 # Clone the repository
-git clone [https://github.com/yourusername/your-repo-name.git](https://github.com/yourusername/your-repo-name.git)
-cd your-repo-name
+git clone https://github.com/tzuchunchen_microsoft/Agentic_Labelling.git
+cd Agentic_Labelling
 
 # Install dependencies
 pip install -r requirements.txt
@@ -250,4 +250,18 @@ usable.
 * **Agentic Orchestration:** Structured Multi-Agent Framework, LLM Decision Making Router
 * **UI & Visualization:** Server-Sent Events (SSE), TailwindCSS, 2D PCA Projection Engines
 * **Target Domains:** Unsupervised Machine Learning, Automated Auto-Labeling, Agentic Workflow, Cluster Exploratory Data Analysis (EDA), Human-in-the-Loop AI, Hyperparameter Optimization, agentic-ai, data-labeling, llm-agents, text-clustering, and ai-workflows
+
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+You are free to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software, provided the copyright notice and permission notice are included.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before opening an issue or pull request.
 

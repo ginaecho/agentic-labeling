@@ -43,6 +43,11 @@ data/uploads/
 # Demo recordings (generated locally)
 recordings/
 *.webm
+*.mp4
+
+# Large media / presentations (kept out of the OSS repo)
+*.pptx
+*.xlsx
 
 # Project docs not for repo
 CLAUDE.md
