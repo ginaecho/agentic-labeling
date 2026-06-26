@@ -1,12 +1,31 @@
 # Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System
 
-[![GitHub stars](https://img.shields.io/github/stars/ginaecho/Agentic_Labelling?style=flat-square)](https://github.com/ginaecho/Agentic_Labelling/stargazers)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/tzuchunchen_microsoft/Agentic_Labelling?style=flat-square)](https://github.com/tzuchunchen_microsoft/Agentic_Labelling/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg?style=flat-square)](https://www.python.org/)
 
 > **The hard part of unsupervised clustering is not the mathematics — it's extracting the meaning.**
 
 **Agentic Clustering & Auto-Labeling** is an autonomous machine learning pipeline that uses an LLM-driven multi-agent architecture to automatically cluster datasets, engineer features, interpret the results, and generate human-readable cluster personas. It bridges the gap between raw statistical grouping and actionable data insights.
+
+> ℹ️ This is a personal research project. It is **not** an official Microsoft product and is not endorsed by or affiliated with Microsoft.
+
+---
+
+## 📑 Table of Contents
+
+- [TL;DR](#-tldr)
+- [Architecture & Agent Roles](#️-architecture--agent-roles)
+- [Quick Start](#-quick-start)
+- [Interactive UI + Adaptive Learning](#-interactive-ui--adaptive-learning-human-in-the-loop-ai)
+- [Text Modality](#-text-modality-document--article-clustering)
+- [Configuration](#️-configuration-configyaml)
+- [Outputs & Generated Artifacts](#-outputs--generated-artifacts)
+- [Skills](#️-skills)
+- [Appendix: Agentic Workflow vs AutoML](#-appendix-agentic-workflow-vs-automl)
+- [Tech Stack & Keywords](#-tech-stack--indexing-keywords)
+- [License](#-license)
+- [Contributing](#-contributing)
 
 ---
 
