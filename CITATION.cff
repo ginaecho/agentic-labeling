@@ -2,7 +2,7 @@
 ---
 cff-version: 1.2.0
 title: "Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System"
-message: "If you use this project, please cite the repository and preserve the authorship and license notices."
+message: "If you use this project, please cite the repository and preserve the authorship and license notices. Repository initialized on 2026-02-25; the first explicit Agentic Labelling idea commit is dated 2026-02-26."
 type: software
 authors:
   - family-names: "Chen"
@@ -11,6 +11,9 @@ abstract: "Agentic Labelling is a multi-agent workflow for autonomous clustering
 repository-code: "https://github.com/ginaecho/agentic-labeling"
 url: "https://github.com/ginaecho/agentic-labeling"
 license: "MIT"
+identifiers:
+  - type: other
+    value: "Git provenance: repository initialized 2026-02-25 (commit 8650d5c5151f8c1ed55f50432b1ff322bb33feb6); first explicit Agentic Labelling idea commit 2026-02-26 (commit 7dc176e6cecc317a381bd277871cc257580e70dd)."
 keywords:
   - "agentic AI"
   - "clustering"

@@ -9,9 +9,10 @@ Release notes should state:
 
 1. This release is the first citable public concept release for Agentic Labelling.
 2. The concept and initial implementation are by Tzu-Chun Chen.
-3. The novelty claim: deterministic quality gates and feedback loops with the LLM limited to selecting among predefined retry paths.
-4. The canonical repository URL: `https://github.com/ginaecho/agentic-labeling`
-5. Citation guidance: cite the GitHub release or Zenodo DOI once archived.
+3. Earliest provenance: repository initialized on `2026-02-25`; first explicit idea commit on `2026-02-26` (`7dc176e`).
+4. The novelty claim: deterministic quality gates and feedback loops with the LLM limited to selecting among predefined retry paths.
+5. The canonical repository URL: `https://github.com/ginaecho/agentic-labeling`
+6. Citation guidance: cite the GitHub release or Zenodo DOI once archived.
 
 After the release is published:
 

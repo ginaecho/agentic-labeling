@@ -6,6 +6,11 @@ This release marks the first citable public concept release for **Agentic Labell
 
 The concept and initial implementation are by **Tzu-Chun Chen**.
 
+## Earliest provenance
+
+- Repository initialization: **2026-02-25** (`8650d5c`)
+- First explicit idea commit: **2026-02-26** (`7dc176e`) with subject `agentic auto clustering and labelling and intepretation`
+
 ## Novelty claim
 
 This project frames unsupervised clustering as an agentic interpretation problem with:

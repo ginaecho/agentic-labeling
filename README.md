@@ -7,7 +7,7 @@
 
 **Agentic Clustering & Auto-Labeling** is an autonomous machine learning pipeline that uses an LLM-driven multi-agent architecture to automatically cluster datasets, engineer features, interpret the results, and generate human-readable cluster personas. It bridges the gap between raw statistical grouping and actionable data insights.
 
-**Authorship note:** Agentic Labelling was originally proposed and implemented by **Tzu-Chun Chen**. If you build on this repository, cite the project and retain the repository's authorship and license notices.
+**Authorship note:** Agentic Labelling was originally proposed and implemented by **Tzu-Chun Chen**. The repository was initialized on **2026-02-25**, and the first explicit git commit for the agentic auto-clustering and labelling idea was authored by Tzu-Chun Chen on **2026-02-26**. If you build on this repository, cite the project and retain the repository's authorship and license notices.
 
 ---
 
@@ -21,6 +21,7 @@
 - [Configuration](#️-configuration-configyaml)
 - [Outputs & Generated Artifacts](#-outputs--generated-artifacts)
 - [Authorship & Citation](#-authorship--citation)
+- [Provenance](#-provenance)
 - [Skills](#️-skills)
 - [Appendix: Agentic Workflow vs AutoML](#-appendix-agentic-workflow-vs-automl)
 - [Tech Stack & Keywords](#-tech-stack--indexing-keywords)
@@ -209,6 +210,15 @@ If you use this work in research, production systems, presentations, or derivati
 * link back to the canonical repository: <https://github.com/ginaecho/agentic-labeling>.
 
 A public release plus Zenodo archival provides a DOI-backed citation target for versioned references.
+
+## 🗂 Provenance
+
+Earliest verifiable project timeline in git history:
+
+* **2026-02-25:** repository initialization commit, `8650d5c`, authored by **ginaecho / Tzu-Chun Chen**.
+* **2026-02-26:** first explicit idea commit, `7dc176e`, with subject `agentic auto clustering and labelling and intepretation`, authored by **ginaecho / Tzu-Chun Chen**.
+
+For authorship claims, the **2026-02-26** commit is the strongest git-native timestamp for the start of the named idea in this repository, while **2026-02-25** is the repository's creation baseline.
 
 ## 🛠️ Skills
 
