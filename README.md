@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg?style=flat-square)](https://www.python.org/)
 [![Release](https://img.shields.io/github/v/release/ginaecho/agentic-labeling?display_name=tag&style=flat-square)](https://github.com/ginaecho/agentic-labeling/releases)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21009410.svg)](https://doi.org/10.5281/zenodo.21009410)
 
 > **The hard part of unsupervised clustering is not the mathematics — it's extracting the meaning.**
 
@@ -207,6 +208,7 @@ This repository is the canonical public record for the **Agentic Labelling / Age
 If you use this work in research, production systems, presentations, or derivative open-source projects:
 
 * cite the repository using the [`CITATION.cff`](CITATION.cff) metadata;
+* prefer the versioned Zenodo DOI for release `v0.1.0`: <https://doi.org/10.5281/zenodo.21009410>;
 * preserve the MIT license notice in copies or substantial portions of the software;
 * link back to the canonical repository: <https://github.com/ginaecho/agentic-labeling>.
 
