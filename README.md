@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg?style=flat-square)](https://www.python.org/)
+[![Release](https://img.shields.io/github/v/release/ginaecho/agentic-labeling?display_name=tag&style=flat-square)](https://github.com/ginaecho/agentic-labeling/releases)
 
 > **The hard part of unsupervised clustering is not the mathematics — it's extracting the meaning.**
 

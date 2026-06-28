@@ -4,6 +4,8 @@ cff-version: 1.2.0
 title: "Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System"
 message: "If you use this project, please cite the repository and preserve the authorship and license notices. Repository initialized on 2026-02-25; the first explicit Agentic Labelling idea commit is dated 2026-02-26."
 type: software
+version: "v0.1.0"
+date-released: 2026-06-28
 authors:
   - family-names: "Chen"
     given-names: "Tzu-Chun"
