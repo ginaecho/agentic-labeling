@@ -10,6 +10,7 @@ doi: 10.5281/zenodo.21009410
 authors:
   - family-names: "Chen"
     given-names: "Tzu-Chun"
+    orcid: "https://orcid.org/0000-0002-8872-5318"
 abstract: "Agentic Labelling is a multi-agent workflow for autonomous clustering, feature iteration, cluster interpretation, and human-readable labeling with deterministic quality gates and feedback loops."
 repository-code: "https://github.com/ginaecho/agentic-labeling"
 url: "https://github.com/ginaecho/agentic-labeling"
