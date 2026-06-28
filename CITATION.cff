@@ -6,6 +6,7 @@ message: "If you use this project, please cite the repository and preserve the a
 type: software
 version: "v0.1.0"
 date-released: 2026-06-28
+doi: 10.5281/zenodo.21009410
 authors:
   - family-names: "Chen"
     given-names: "Tzu-Chun"

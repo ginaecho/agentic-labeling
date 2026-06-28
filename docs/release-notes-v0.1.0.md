@@ -23,4 +23,6 @@ The concept and initial implementation are by **Tzu-Chun Chen**.
 
 ## Citation
 
-Use the repository citation metadata in `CITATION.cff`. If Zenodo archives this release, prefer citing the DOI-backed Zenodo record for `v0.1.0`.
+Use the repository citation metadata in `CITATION.cff`. Zenodo archived this release at:
+
+- DOI: <https://doi.org/10.5281/zenodo.21009410>
