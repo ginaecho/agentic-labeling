@@ -1,0 +1,20 @@
+{
+  "title": "Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System",
+  "description": "Agentic Labelling is a multi-agent workflow for autonomous clustering, feature iteration, cluster interpretation, and human-readable labeling with deterministic quality gates and feedback loops.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "MIT",
+  "creators": [
+    {
+      "name": "Chen, Tzu-Chun"
+    }
+  ],
+  "keywords": [
+    "agentic AI",
+    "clustering",
+    "auto-labeling",
+    "unsupervised learning",
+    "multi-agent systems",
+    "LLM workflows"
+  ]
+}

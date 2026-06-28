@@ -7,6 +7,8 @@
 
 **Agentic Clustering & Auto-Labeling** is an autonomous machine learning pipeline that uses an LLM-driven multi-agent architecture to automatically cluster datasets, engineer features, interpret the results, and generate human-readable cluster personas. It bridges the gap between raw statistical grouping and actionable data insights.
 
+**Authorship note:** Agentic Labelling was originally proposed and implemented by **Tzu-Chun Chen**. If you build on this repository, cite the project and retain the repository's authorship and license notices.
+
 ---
 
 ## 📑 Table of Contents
@@ -18,6 +20,7 @@
 - [Text Modality](#-text-modality-document--article-clustering)
 - [Configuration](#️-configuration-configyaml)
 - [Outputs & Generated Artifacts](#-outputs--generated-artifacts)
+- [Authorship & Citation](#-authorship--citation)
 - [Skills](#️-skills)
 - [Appendix: Agentic Workflow vs AutoML](#-appendix-agentic-workflow-vs-automl)
 - [Tech Stack & Keywords](#-tech-stack--indexing-keywords)
@@ -81,8 +84,8 @@ To optimize performance and handle bottlenecks, tasks are delegated to specializ
 
 ```bash
 # Clone the repository
-git clone https://github.com/tzuchunchen_microsoft/Agentic_Labelling.git
-cd Agentic_Labelling
+git clone https://github.com/ginaecho/agentic-labeling.git
+cd agentic-labeling
 
 # Install dependencies
 pip install -r requirements.txt
@@ -194,6 +197,18 @@ All run logs, data metrics, and metadata models persist inside the `outputs/` di
 
 > ⚠️ **Best-Effort Fallback Mode:** During the input of user intent, you choose the max iteration N. If N successive execution loops fail to fulfill every target quality gate, the pipeline shifts into a **Best-Effort Mode**. It surfaces the highest-scoring historical silhouette run, auto-labels it, builds the proxy validation classifier, and appends `status='best_effort'` to the final payload so the pipeline execution never leaves you empty-handed.
 ---
+
+## 📚 Authorship & Citation
+
+This repository is the canonical public record for the **Agentic Labelling / Agentic Clustering & Auto-Labeling** concept and implementation by **Tzu-Chun Chen**.
+
+If you use this work in research, production systems, presentations, or derivative open-source projects:
+
+* cite the repository using the [`CITATION.cff`](CITATION.cff) metadata;
+* preserve the MIT license notice in copies or substantial portions of the software;
+* link back to the canonical repository: <https://github.com/ginaecho/agentic-labeling>.
+
+A public release plus Zenodo archival provides a DOI-backed citation target for versioned references.
 
 ## 🛠️ Skills
 
@@ -309,4 +324,3 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 - **Security:** To report a vulnerability, see [SECURITY.md](SECURITY.md) — please do not open a public issue for security matters.
 - **Support:** For questions, bugs, or feature requests, see [SUPPORT.md](SUPPORT.md).
-

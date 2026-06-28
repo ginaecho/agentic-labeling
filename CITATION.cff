@@ -1,0 +1,20 @@
+# YAML 1.2
+---
+cff-version: 1.2.0
+title: "Agentic Clustering & Auto-Labeling: Autonomous Cluster Interpretation with a Multi-Agent System"
+message: "If you use this project, please cite the repository and preserve the authorship and license notices."
+type: software
+authors:
+  - family-names: "Chen"
+    given-names: "Tzu-Chun"
+abstract: "Agentic Labelling is a multi-agent workflow for autonomous clustering, feature iteration, cluster interpretation, and human-readable labeling with deterministic quality gates and feedback loops."
+repository-code: "https://github.com/ginaecho/agentic-labeling"
+url: "https://github.com/ginaecho/agentic-labeling"
+license: "MIT"
+keywords:
+  - "agentic AI"
+  - "clustering"
+  - "auto-labeling"
+  - "unsupervised learning"
+  - "multi-agent systems"
+  - "LLM workflows"
