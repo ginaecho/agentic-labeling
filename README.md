@@ -7,8 +7,6 @@
 
 **Agentic Clustering & Auto-Labeling** is an autonomous machine learning pipeline that uses an LLM-driven multi-agent architecture to automatically cluster datasets, engineer features, interpret the results, and generate human-readable cluster personas. It bridges the gap between raw statistical grouping and actionable data insights.
 
-> ℹ️ This is a personal research project. It is **not** an official Microsoft product and is not endorsed by or affiliated with Microsoft.
-
 ---
 
 ## 📑 Table of Contents
